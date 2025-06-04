@@ -132,7 +132,16 @@ CACHE_KV=CACHE
 # Development Configuration
 ENVIRONMENT=development
 LOG_LEVEL=debug
+DEBUG_MODE=true
 ```
+
+**Important Notes**:
+- For local development, the API key will be loaded from `.env` automatically
+- For Cloudflare Workers deployment, set the API key as a secret:
+  ```bash
+  wrangler secret put YOUTUBE_API_KEY
+  ```
+- The system will first check Cloudflare environment, then fall back to `.env` file
 
 ### 3.3 Validate Configuration
 

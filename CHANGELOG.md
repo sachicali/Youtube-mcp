@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2024-12-06
 
+### Fixed - Environment Variable Loading (December 6, 2024)
+- **Fix**: Resolved YouTube API key loading from .env in local development
+- **Solution**: Added dotenv support with Cloudflare environment fallback
+- **Impact**: Configuration service now works in both local and Cloudflare environments
+
 ### Added - getVideoAnalytics Tool Implementation (December 6, 2024)
 - **Features**: Complete getVideoAnalytics tool with comprehensive YouTube video analytics
   - Multi-format URL support (youtube.com/watch, youtu.be, shorts, embed URLs)

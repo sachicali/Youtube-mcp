@@ -87,13 +87,29 @@ export class ConfigurationService {
    * Create configuration from environment variables
    */
   private createFromEnvironment(env: CloudflareEnvironment): ServerConfiguration {
+    // Load .env in non-Cloudflare environments
+    let youtubeApiKey = env.YOUTUBE_API_KEY;
+    if (!youtubeApiKey) {
+      try {
+        // @ts-ignore - process exists in Node.js
+        if (typeof process !== 'undefined') {
+          // @ts-ignore
+          require('dotenv').config();
+          // @ts-ignore
+          youtubeApiKey = process.env.YOUTUBE_API_KEY;
+        }
+      } catch (e) {
+        // dotenv not available
+      }
+    }
+
     return {
       environment: env.ENVIRONMENT,
       debug: env.DEBUG_MODE === 'true',
       
       apis: {
         youtube: {
-          apiKey: env.YOUTUBE_API_KEY,
+          apiKey: youtubeApiKey || '',
           baseUrl: 'https://www.googleapis.com/youtube/v3',
           quotaLimit: 10000, // YouTube API v3 daily quota
           requestsPerSecond: 10, // Conservative rate limiting
