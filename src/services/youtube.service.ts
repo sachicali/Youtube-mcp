@@ -542,7 +542,7 @@ export class YouTubeService implements YouTubeServiceInterface {
         return null;
       }
 
-      const cached = await this.env.CACHE_KV.get(key);
+      const cached = await this.env.CACHE_KV?.get(key);
       if (cached) {
         return JSON.parse(cached) as T;
       }
@@ -564,7 +564,7 @@ export class YouTubeService implements YouTubeServiceInterface {
         return;
       }
 
-      await this.env.CACHE_KV.put(key, JSON.stringify(data), {
+      await this.env.CACHE_KV?.put(key, JSON.stringify(data), {
         expirationTtl: ttl,
       });
 

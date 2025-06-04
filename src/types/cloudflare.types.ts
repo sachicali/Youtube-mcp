@@ -1,124 +1,127 @@
 /**
- * Cloudflare Workers Type Definitions
- * 
- * Cloudflare-specific types for Workers runtime environment.
- * Uses existing Web API types from @cloudflare/workers-types.
+ * Cloudflare Workers Types
+ * Enhanced type definitions for Cloudflare Workers runtime with WebSocket support
  */
 
+// Import from environment types to avoid duplication
+import type { ExecutionContext, CloudflareEnvironment, KVNamespace } from './environment.types';
+
 /**
- * Environment variables provided to the Cloudflare Worker
+ * Cloudflare Workers request context
  */
-export interface CloudflareEnvironment {
-  // YouTube API Configuration
-  YOUTUBE_API_KEY: string;
-  
-  // Optional OAuth Configuration (for future user-specific features)
-  YOUTUBE_CLIENT_ID?: string;
-  YOUTUBE_CLIENT_SECRET?: string;
-  
-  // Cloudflare KV Bindings
-  CACHE_KV: KVNamespace;
-  
-  // Optional configuration
-  LOG_LEVEL?: string;
-  ENVIRONMENT?: string;
+export interface CloudflareRequestContext {
+  request: Request;
+  env: CloudflareEnvironment;
+  ctx: ExecutionContext;
 }
 
 /**
- * Cloudflare KV namespace interface
+ * WebSocket pair for Cloudflare Workers
  */
-export interface KVNamespace {
-  get(key: string, options?: KVNamespaceGetOptions): Promise<string | null>;
-  put(key: string, value: string, options?: KVNamespacePutOptions): Promise<void>;
-  delete(key: string): Promise<void>;
-  list(options?: KVNamespaceListOptions): Promise<KVNamespaceListResult>;
+export interface WebSocketPair {
+  0: WebSocket;
+  1: WebSocket;
 }
 
 /**
- * KV namespace operation options
+ * WebSocket event types
  */
-export interface KVNamespaceGetOptions {
-  type?: 'text' | 'json' | 'arrayBuffer' | 'stream';
-  cacheTtl?: number;
-}
+export type WebSocketEventType = 'open' | 'message' | 'close' | 'error';
 
-export interface KVNamespacePutOptions {
-  expirationTtl?: number;
-  expiration?: number;
-  metadata?: Record<string, unknown>;
-}
-
-export interface KVNamespaceListOptions {
-  limit?: number;
-  prefix?: string;
-  cursor?: string;
-}
-
-export interface KVNamespaceListResult {
-  keys: Array<{
-    name: string;
-    expiration?: number;
-    metadata?: Record<string, unknown>;
-  }>;
-  list_complete: boolean;
-  cursor?: string;
+/**
+ * Enhanced WebSocket interface with Cloudflare Workers methods
+ */
+export interface CloudflareWebSocket extends WebSocket {
+  accept(): void;
+  send(message: string | ArrayBuffer): void;
+  close(code?: number, reason?: string): void;
 }
 
 /**
- * Cloudflare Workers Request interface extensions
+ * Cloudflare Workers global types
  */
-export interface CloudflareRequest extends Request {
-  cf?: {
-    country?: string;
-    region?: string;
-    city?: string;
-    timezone?: string;
-    [key: string]: unknown;
-  };
-}
-
-/**
- * Cloudflare Workers Response interface extensions
- */
-export interface CloudflareResponse extends Response {
-  webSocket?: WebSocket;
-}
-
-/**
- * Worker fetch handler signature
- */
-export interface WorkerFetchHandler {
-  (
-    request: CloudflareRequest,
-    env: CloudflareEnvironment,
-    ctx: ExecutionContext
-  ): Promise<CloudflareResponse>;
-}
-
-/**
- * Cloudflare Workers execution context
- */
-export interface ExecutionContext {
-  waitUntil(promise: Promise<unknown>): void;
-  passThroughOnException(): void;
-}
-
-/**
- * Worker export interface
- */
-export interface WorkerExports {
-  fetch: WorkerFetchHandler;
-}
-
-// Cloudflare Workers Handler interface
-export interface CloudflareWorkerHandler<Env = unknown> {
-  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response>;
-}
-
-// Make ExecutionContext globally available
 declare global {
-  interface ExecutionContext {
-    waitUntil(promise: Promise<unknown>): void;
-    passThroughOnException(): void;
+  // ExecutionContext is already declared in environment.types
+  
+  // WebSocket constructor for Cloudflare Workers
+  var WebSocketPair: {
+    new(): WebSocketPair;
+  };
+  
+  // Response with WebSocket upgrade
+  interface ResponseInit {
+    webSocket?: CloudflareWebSocket;
   }
 }
+
+/**
+ * Cloudflare Workers fetch handler type
+ */
+export type CloudflareFetchHandler = (
+  request: Request,
+  env: CloudflareEnvironment,
+  ctx: ExecutionContext
+) => Promise<Response>;
+
+/**
+ * Cloudflare Workers module export
+ */
+export interface CloudflareWorkerModule {
+  fetch: CloudflareFetchHandler;
+}
+
+/**
+ * WebSocket upgrade utilities
+ */
+export class WebSocketUpgrade {
+  static create(): WebSocketPair {
+    return new WebSocketPair();
+  }
+
+  static upgradeRequest(request: Request, webSocket: CloudflareWebSocket): Response {
+    return new Response(null, {
+      status: 101,
+      statusText: 'Switching Protocols',
+      webSocket
+    });
+  }
+
+  static isUpgradeRequest(request: Request): boolean {
+    return request.headers.get('Upgrade') === 'websocket';
+  }
+}
+
+/**
+ * Cloudflare Workers environment utilities
+ */
+export class CloudflareEnvironmentUtils {
+  static getEnvironmentType(env: CloudflareEnvironment): 'development' | 'staging' | 'production' {
+    return env.ENVIRONMENT || 'development';
+  }
+
+  static isProduction(env: CloudflareEnvironment): boolean {
+    return this.getEnvironmentType(env) === 'production';
+  }
+
+  static isDevelopment(env: CloudflareEnvironment): boolean {
+    return this.getEnvironmentType(env) === 'development';
+  }
+
+  static getDebugMode(env: CloudflareEnvironment): boolean {
+    return env.DEBUG === 'true' || this.isDevelopment(env);
+  }
+}
+
+/**
+ * Type guard for Cloudflare environment
+ */
+export function isCloudflareEnvironment(env: any): env is CloudflareEnvironment {
+  return env && 
+         typeof env.YOUTUBE_API_KEY === 'string' &&
+         typeof env.ENVIRONMENT === 'string' &&
+         env.YOUTUBE_MCP_KV &&
+         typeof env.YOUTUBE_MCP_KV.get === 'function';
+}
+
+// Re-export types for convenience
+export type { CloudflareEnvironment, ExecutionContext, KVNamespace };

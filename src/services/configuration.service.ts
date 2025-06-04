@@ -1,50 +1,69 @@
 /**
  * Configuration Service
- * 
- * Manages environment variables, server configuration, and validation
- * for the YouTube Scraping MCP Server.
+ * Manages environment configuration and provides typed configuration objects
  */
 
 import type { 
-  CloudflareEnvironment, 
-  ServerConfiguration, 
-  ValidationResult, 
+  CloudflareEnvironment,
+  ServerConfiguration,
+  ValidationResult,
   ConfigurationError,
-  ConfigurationWarning 
+  ConfigurationWarning,
+  ConfigurationFactory,
+  EnvironmentValidator
 } from '@/types/environment.types';
 
+import { 
+  ConfigurationFactory as Factory,
+  EnvironmentValidator as Validator
+} from '@/types/environment.types';
+
+/**
+ * Enhanced validation result with warnings
+ */
+interface ExtendedValidationResult extends ValidationResult {
+  warnings: ConfigurationWarning[];
+}
+
+/**
+ * Configuration service for managing environment settings
+ */
 export class ConfigurationService {
   private env: CloudflareEnvironment;
   private config: ServerConfiguration;
-  private validated: boolean = false;
+  private initialized: boolean = false;
 
   constructor(env: CloudflareEnvironment) {
     this.env = env;
-    this.config = this.createDefaultConfiguration();
+    this.config = Factory.createServerConfiguration(env);
   }
 
   /**
-   * Initialize configuration service
+   * Initialize the configuration service (async initialization if needed)
    */
   async initialize(): Promise<void> {
-    this.config = this.createFromEnvironment(this.env);
-    const validation = this.validateConfiguration(this.config);
-    
+    if (this.initialized) return;
+
+    const validation = this.validateEnvironment(this.env);
     if (!validation.valid) {
       const errorMessages = validation.errors.map(e => `${e.field}: ${e.message}`).join(', ');
-      throw new Error(`Configuration validation failed: ${errorMessages}`);
+      throw new Error(`Invalid environment configuration: ${errorMessages}`);
     }
 
-    this.validated = true;
+    this.initialized = true;
   }
 
   /**
-   * Get current configuration
+   * Get the complete server configuration
+   */
+  getConfig(): ServerConfiguration {
+    return this.config;
+  }
+
+  /**
+   * Get the complete server configuration (alias for compatibility)
    */
   getConfiguration(): ServerConfiguration {
-    if (!this.validated) {
-      throw new Error('Configuration not initialized. Call initialize() first.');
-    }
     return this.config;
   }
 
@@ -52,334 +71,172 @@ export class ConfigurationService {
    * Get environment type
    */
   getEnvironment(): 'development' | 'production' {
-    return this.env.ENVIRONMENT;
+    const env = this.env.ENVIRONMENT;
+    return env === 'staging' ? 'development' : env;
   }
 
   /**
    * Check if debug mode is enabled
    */
   isDebugMode(): boolean {
-    return this.env.DEBUG_MODE === 'true';
+    return this.config.debug;
   }
 
   /**
    * Get YouTube API configuration
    */
-  getYouTubeConfig(): ServerConfiguration['apis']['youtube'] {
+  getYouTubeConfig() {
     return this.config.apis.youtube;
   }
 
   /**
    * Get cache configuration
    */
-  getCacheConfig(): ServerConfiguration['cache'] {
+  getCacheConfig() {
     return this.config.cache;
   }
 
   /**
    * Get rate limiting configuration
    */
-  getRateLimitConfig(): ServerConfiguration['rateLimit'] {
-    return this.config.rateLimit;
+  getRateLimitConfig() {
+    return this.config.rateLimits;
   }
 
   /**
-   * Create configuration from environment variables
+   * Get WebSocket configuration
    */
-  private createFromEnvironment(env: CloudflareEnvironment): ServerConfiguration {
-    // For development, allow graceful handling when API key is missing
-    const isDevelopment = (env.ENVIRONMENT || 'development') === 'development';
-    
-    if (!env.YOUTUBE_API_KEY) {
-      if (isDevelopment) {
-        console.warn('[ConfigurationService] YOUTUBE_API_KEY is missing in development environment. Some features may not work.');
-        // Allow development to continue with a placeholder
-      } else {
-        throw new Error('YOUTUBE_API_KEY is required');
-      }
-    }
-
-    return {
-      environment: env.ENVIRONMENT || 'development',
-      debug: env.DEBUG_MODE === 'true',
-      
-      apis: {
-        youtube: {
-          apiKey: env.YOUTUBE_API_KEY || '',
-          baseUrl: 'https://www.googleapis.com/youtube/v3',
-          quotaLimit: 10000, // YouTube API v3 daily quota
-          requestsPerSecond: 10, // Conservative rate limiting
-        },
-        oauth: env.OAUTH_CLIENT_ID && env.OAUTH_CLIENT_SECRET ? {
-          clientId: env.OAUTH_CLIENT_ID,
-          clientSecret: env.OAUTH_CLIENT_SECRET,
-          redirectUri: 'urn:ietf:wg:oauth:2.0:oob', // For installed applications
-          scopes: [
-            'https://www.googleapis.com/auth/youtube.readonly',
-            'https://www.googleapis.com/auth/youtube.force-ssl'
-          ],
-        } : undefined,
-        transcript: env.YTDLP_SERVICE_URL ? {
-          serviceUrl: env.YTDLP_SERVICE_URL,
-          timeout: 30000, // 30 second timeout
-          retries: 3,
-        } : undefined,
-      },
-      
-      cache: {
-        enabled: true,
-        namespaces: {
-          cache: env.CACHE_KV,
-          rateLimits: env.RATE_LIMITS,
-        },
-        ttl: {
-          transcripts: 86400, // 24 hours
-          videoMetrics: 3600, // 1 hour
-          channelAnalysis: 7200, // 2 hours
-          trends: 1800, // 30 minutes
-          searches: 600, // 10 minutes
-        },
-      },
-      
-      rateLimit: {
-        enabled: true,
-        quotaLimit: 10000, // YouTube API daily quota
-        requestsPerMinute: 600, // 10 requests per second * 60
-        burstLimit: 50, // Allow bursts up to 50 requests
-        exponentialBackoff: {
-          baseDelay: 1000, // 1 second base delay
-          maxDelay: 60000, // 60 seconds maximum
-          backoffFactor: 2, // Double delay each retry
-          maxRetries: 5,
-        },
-      },
-      
-      cors: {
-        enabled: true,
-        origins: ['*'], // Allow all origins for MCP
-        methods: ['GET', 'POST', 'OPTIONS'],
-        headers: ['Content-Type', 'Authorization'],
-      },
-      
-      monitoring: {
-        enabled: true,
-        logLevel: env.DEBUG_MODE === 'true' ? 'debug' : 'info',
-        errorReporting: env.ENVIRONMENT === 'production',
-        performanceTracking: true,
-      },
-    };
+  getWebSocketConfig() {
+    return this.config.websocket;
   }
 
   /**
-   * Create default configuration
+   * Get authentication configuration
    */
-  private createDefaultConfiguration(): ServerConfiguration {
-    return {
-      environment: 'development',
-      debug: true,
-      
-      apis: {
-        youtube: {
-          apiKey: this.env.YOUTUBE_API_KEY || '',
-          baseUrl: 'https://www.googleapis.com/youtube/v3',
-          quotaLimit: 10000,
-          requestsPerSecond: 10,
-        },
-      },
-      
-      cache: {
-        enabled: false,
-        namespaces: {
-          cache: {} as any, // Will be replaced during initialization
-          rateLimits: {} as any,
-        },
-        ttl: {
-          transcripts: 86400,
-          videoMetrics: 3600,
-          channelAnalysis: 7200,
-          trends: 1800,
-          searches: 600,
-        },
-      },
-      
-      rateLimit: {
-        enabled: true,
-        quotaLimit: 10000,
-        requestsPerMinute: 600,
-        burstLimit: 50,
-        exponentialBackoff: {
-          baseDelay: 1000,
-          maxDelay: 60000,
-          backoffFactor: 2,
-          maxRetries: 5,
-        },
-      },
-      
-      cors: {
-        enabled: true,
-        origins: ['*'],
-        methods: ['GET', 'POST', 'OPTIONS'],
-        headers: ['Content-Type', 'Authorization'],
-      },
-      
-      monitoring: {
-        enabled: true,
-        logLevel: 'info',
-        errorReporting: false,
-        performanceTracking: true,
-      },
-    };
+  getAuthConfig() {
+    return this.config.authentication;
   }
 
   /**
-   * Validate configuration
+   * Get CORS configuration
    */
-  private validateConfiguration(config: ServerConfiguration): ValidationResult {
-    const errors: ConfigurationError[] = [];
+  getCorsConfig() {
+    return this.config.cors;
+  }
+
+  /**
+   * Get monitoring configuration
+   */
+  getMonitoringConfig() {
+    return this.config.monitoring;
+  }
+
+  /**
+   * Get external services configuration
+   */
+  getExternalServicesConfig() {
+    return this.config.externalServices;
+  }
+
+  /**
+   * Get performance configuration
+   */
+  getPerformanceConfig() {
+    return this.config.performance;
+  }
+
+  /**
+   * Check if service is initialized
+   */
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
+  /**
+   * Validate environment configuration
+   */
+  private validateEnvironment(env: CloudflareEnvironment): ExtendedValidationResult {
+    const basicValidation = Validator.validate(env);
     const warnings: ConfigurationWarning[] = [];
+    const errors: Array<{ field: string; message: string; value?: any }> = [...basicValidation.errors];
 
-    // Validate YouTube API key (already validated in createFromEnvironment)
-
-    // Validate quota limits
-    if (config.apis.youtube.quotaLimit <= 0) {
-      errors.push({
-        field: 'apis.youtube.quotaLimit',
-        message: 'YouTube API quota limit must be positive',
-        severity: 'error',
-      });
-    }
-
-    // Validate rate limiting
-    if (config.rateLimit.requestsPerMinute <= 0) {
-      errors.push({
-        field: 'rateLimit.requestsPerMinute',
-        message: 'Requests per minute must be positive',
-        severity: 'error',
-      });
-    }
-
-    // Check for OAuth configuration completeness
-    if (config.apis.oauth) {
-      if (!config.apis.oauth.clientId || !config.apis.oauth.clientSecret) {
+    // Additional validation logic
+    if (env.ENVIRONMENT === 'production') {
+      if (env.DEBUG === 'true') {
         warnings.push({
-          field: 'apis.oauth',
-          message: 'Incomplete OAuth configuration - some features may be limited',
-          impact: 'functionality',
+          code: 'PROD_DEBUG_ENABLED',
+          message: 'Debug mode should not be enabled in production',
+          field: 'DEBUG',
+          recommendation: 'Set DEBUG=false or remove DEBUG environment variable'
+        });
+      }
+
+      if (!env.OAUTH_CLIENT_ID || !env.OAUTH_CLIENT_SECRET) {
+        warnings.push({
+          code: 'MISSING_OAUTH',
+          message: 'OAuth credentials not configured for production',
+          field: 'OAUTH_CLIENT_ID',
+          recommendation: 'Configure OAuth credentials for enhanced functionality'
         });
       }
     }
-
-    // Validate cache TTL values
-    Object.entries(config.cache.ttl).forEach(([key, value]) => {
-      if (value <= 0) {
-        warnings.push({
-          field: `cache.ttl.${key}`,
-          message: `Cache TTL for ${key} should be positive`,
-          impact: 'performance',
-        });
-      }
-    });
 
     // Performance warnings
-    if (config.apis.youtube.requestsPerSecond > 100) {
+    const rateLimitRequests = Validator.getNumeric(env.RATE_LIMIT_REQUESTS, 100);
+    if (rateLimitRequests > 1000) {
       warnings.push({
-        field: 'apis.youtube.requestsPerSecond',
-        message: 'High request rate may cause API throttling',
-        impact: 'performance',
+        code: 'HIGH_RATE_LIMIT',
+        message: 'Rate limit is set very high',
+        field: 'RATE_LIMIT_REQUESTS',
+        recommendation: 'Consider lowering rate limit for better resource management'
       });
     }
 
-    // Security warnings for production
-    if (config.environment === 'production') {
-      if (config.cors.origins.includes('*')) {
-        warnings.push({
-          field: 'cors.origins',
-          message: 'Wildcard CORS origins in production may pose security risk',
-          impact: 'security',
-        });
-      }
-
-      if (config.debug) {
-        warnings.push({
-          field: 'debug',
-          message: 'Debug mode enabled in production',
-          impact: 'security',
-        });
-      }
+    // CORS warnings
+    if (env.DEV_CORS_ENABLED === 'true' && env.ENVIRONMENT === 'production') {
+      warnings.push({
+        code: 'CORS_ENABLED_PROD',
+        message: 'CORS is enabled in production',
+        field: 'DEV_CORS_ENABLED',
+        recommendation: 'Review CORS configuration for production security'
+      });
     }
 
     return {
       valid: errors.length === 0,
       errors,
-      warnings,
+      warnings
     };
   }
 
   /**
-   * Get configuration value by path
+   * Get configuration warnings
    */
-  get<T>(path: string): T | undefined {
-    const keys = path.split('.');
-    let current: any = this.config;
-    
-    for (const key of keys) {
-      if (current === null || current === undefined) {
-        return undefined;
-      }
-      current = current[key];
-    }
-    
-    return current as T;
-  }
-
-  /**
-   * Check if configuration has a specific path
-   */
-  has(path: string): boolean {
-    return this.get(path) !== undefined;
-  }
-
-  /**
-   * Update configuration value (for runtime updates)
-   */
-  set<T>(path: string, value: T): void {
-    const keys = path.split('.');
-    const lastKey = keys.pop();
-    
-    if (!lastKey) {
-      throw new Error('Invalid configuration path');
-    }
-    
-    let current: any = this.config;
-    for (const key of keys) {
-      if (!current[key]) {
-        current[key] = {};
-      }
-      current = current[key];
-    }
-    
-    current[lastKey] = value;
-  }
-
-  /**
-   * Reload configuration from environment
-   */
-  async reload(): Promise<void> {
-    await this.initialize();
-  }
-
-  /**
-   * Get current validation status
-   */
-  isValid(): boolean {
-    return this.validated;
-  }
-
-  /**
-   * Get validation warnings
-   */
-  getValidationWarnings(): ConfigurationWarning[] {
-    const validation = this.validateConfiguration(this.config);
+  getConfigurationWarnings(): ConfigurationWarning[] {
+    const validation = this.validateEnvironment(this.env) as ExtendedValidationResult;
     return validation.warnings;
+  }
+
+  /**
+   * Get raw environment variables
+   */
+  getRawEnvironment(): CloudflareEnvironment {
+    return this.env;
+  }
+
+  /**
+   * Update environment configuration (for testing purposes)
+   */
+  updateEnvironment(env: CloudflareEnvironment): void {
+    this.env = env;
+    this.config = Factory.createServerConfiguration(env);
+    this.initialized = false;
+  }
+
+  /**
+   * Validate current configuration
+   */
+  validateConfiguration(): ExtendedValidationResult {
+    return this.validateEnvironment(this.env);
   }
 }
