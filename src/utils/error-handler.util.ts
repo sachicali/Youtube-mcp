@@ -1,24 +1,26 @@
 /**
  * Error Handler Utility
  * 
- * Centralized error handling with structured error responses,
- * logging, and HTTP response generation.
+ * Provides comprehensive error handling, logging, and response generation
+ * for the YouTube Scraping MCP Server with proper HTTP status mapping.
  */
 
-import type { MCPErrorCodes, MCPError, MCPResponse } from '@/types/mcp.types';
 import type { LoggerUtil } from '@/utils/logger.util';
+import type { MCPResponse, MCPErrorCode } from '@/types/mcp.types';
+import { MCPErrorCodes } from '@/types/mcp.types';
 
 export interface ErrorContext {
   requestId?: string;
-  operation?: string;
   userId?: string;
-  [key: string]: unknown;
+  operation?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ErrorDetails {
-  code: MCPErrorCodes;
+  code: number;
   message: string;
-  details?: unknown;
+  details?: string;
+  stack?: string;
   context?: ErrorContext;
 }
 
@@ -30,299 +32,302 @@ export class ErrorHandlerUtil {
   }
 
   /**
-   * Create standardized error response for HTTP requests
+   * Create standardized HTTP error response
    */
   createErrorResponse(
-    code: MCPErrorCodes,
+    code: number,
     message: string,
-    requestId: string,
-    details?: unknown
+    id: string | null = null,
+    details?: string
   ): Response {
     const errorResponse = {
       jsonrpc: '2.0' as const,
-      id: requestId,
+      id,
       error: {
-        code,
+        code: this.mapHttpToMCPErrorCode(code),
         message,
-        data: details,
+        data: details ? { details } : undefined,
       },
     };
 
-    // Log the error
-    this.logger.error('Error response created', {
-      requestId,
-      errorCode: code,
-      errorMessage: message,
+    this.logger.error('HTTP Error Response Created', {
+      httpCode: code,
+      mcpCode: errorResponse.error.code,
+      message,
       details,
+      requestId: id,
     });
 
     return new Response(JSON.stringify(errorResponse), {
-      status: this.getHttpStatusFromMCPError(code),
+      status: code,
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
     });
   }
 
   /**
-   * Create MCP error object
+   * Create MCP error response for JSON-RPC
    */
-  createMCPError(
-    code: MCPErrorCodes,
+  createMCPErrorResponse(
+    code: MCPErrorCode,
     message: string,
-    details?: unknown,
-    context?: ErrorContext
-  ): MCPError {
-    // Log the error with context
-    this.logger.error('MCP error created', {
-      errorCode: code,
-      errorMessage: message,
-      details,
-      ...context,
+    id: string | number | null = null,
+    data?: unknown
+  ) {
+    const errorResponse = {
+      jsonrpc: '2.0' as const,
+      id,
+      error: {
+        code,
+        message,
+        data,
+      },
+    };
+
+    this.logger.error('MCP Error Response Created', {
+      code,
+      message,
+      data,
+      requestId: id,
     });
+
+    return errorResponse;
+  }
+
+  /**
+   * Wrap async function with error handling
+   */
+  async wrapAsync<T>(
+    fn: () => Promise<T>,
+    context?: ErrorContext
+  ): Promise<T> {
+    try {
+      return await fn();
+    } catch (error) {
+      this.handleError(error, context);
+      throw error;
+    }
+  }
+
+  /**
+   * Wrap synchronous function with error handling
+   */
+  wrapSync<T>(
+    fn: () => T,
+    context?: ErrorContext
+  ): T {
+    try {
+      return fn();
+    } catch (error) {
+      this.handleError(error, context);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle and log errors with context
+   */
+  handleError(error: unknown, context?: ErrorContext): ErrorDetails {
+    const errorDetails = this.extractErrorDetails(error, context);
+    
+    this.logger.error('Error handled', {
+      code: errorDetails.code,
+      message: errorDetails.message,
+      details: errorDetails.details,
+      context: errorDetails.context,
+      stack: errorDetails.stack,
+    });
+
+    return errorDetails;
+  }
+
+  /**
+   * Extract structured error details from various error types
+   */
+  private extractErrorDetails(error: unknown, context?: ErrorContext): ErrorDetails {
+    let code = 500;
+    let message = 'Internal Server Error';
+    let details: string | undefined;
+    let stack: string | undefined;
+
+    if (error instanceof Error) {
+      message = error.message;
+      stack = error.stack;
+      
+      // Handle specific error types
+      if (error.name === 'ValidationError') {
+        code = 400;
+      } else if (error.name === 'NotFoundError' || error.name === 'ToolNotFoundError') {
+        code = 404;
+      } else if (error.name === 'AuthenticationError') {
+        code = 401;
+      } else if (error.name === 'AuthorizationError') {
+        code = 403;
+      } else if (error.name === 'RateLimitError') {
+        code = 429;
+      } else if (error.name === 'YouTubeAPIRequestError') {
+        // Extract YouTube API error details
+        const youtubeError = error as any;
+        code = youtubeError.code || 500;
+        details = youtubeError.status;
+      } else if (error.name === 'TranscriptNotAvailableError') {
+        code = 404;
+        details = 'Transcript not available for this video';
+      }
+    } else if (typeof error === 'string') {
+      message = error;
+    } else if (error && typeof error === 'object') {
+      const errorObj = error as any;
+      message = errorObj.message || errorObj.error || 'Unknown error';
+      code = errorObj.code || errorObj.status || 500;
+      details = errorObj.details;
+    }
 
     return {
       code,
       message,
-      data: details,
+      details,
+      stack,
+      context,
     };
   }
 
   /**
-   * Handle and convert various error types to MCP errors
+   * Map HTTP status codes to MCP error codes
    */
-  handleError(error: unknown, context?: ErrorContext): MCPError {
-    if (error instanceof MCPErrorInstance) {
-      return this.createMCPError(error.code, error.message, error.details, context);
-    }
-
-    if (error instanceof Error) {
-      // Check for specific error types
-      if (error.name === 'ValidationError') {
-        return this.createMCPError(
-          MCPErrorCodes.VALIDATION_FAILED,
-          error.message,
-          { originalError: error.name },
-          context
-        );
-      }
-
-      if (error.name === 'TypeError' || error.name === 'ReferenceError') {
-        return this.createMCPError(
-          MCPErrorCodes.INTERNAL_ERROR,
-          'Internal server error',
-          { type: error.name, message: error.message },
-          context
-        );
-      }
-
-      // Generic Error handling
-      return this.createMCPError(
-        MCPErrorCodes.INTERNAL_ERROR,
-        error.message || 'Unknown error occurred',
-        { originalError: error.name },
-        context
-      );
-    }
-
-    // Handle unknown error types
-    return this.createMCPError(
-      MCPErrorCodes.INTERNAL_ERROR,
-      'Unknown error occurred',
-      { error: String(error) },
-      context
-    );
-  }
-
-  /**
-   * Create error boundary wrapper for async operations
-   */
-  async withErrorBoundary<T>(
-    operation: () => Promise<T>,
-    context?: ErrorContext
-  ): Promise<T | MCPError> {
-    try {
-      return await operation();
-    } catch (error) {
-      return this.handleError(error, context);
-    }
-  }
-
-  /**
-   * Create error boundary wrapper for sync operations
-   */
-  withSyncErrorBoundary<T>(
-    operation: () => T,
-    context?: ErrorContext
-  ): T | MCPError {
-    try {
-      return operation();
-    } catch (error) {
-      return this.handleError(error, context);
-    }
-  }
-
-  /**
-   * Validate and throw custom errors
-   */
-  throwValidationError(message: string, details?: unknown): never {
-    throw new MCPErrorInstance(MCPErrorCodes.VALIDATION_FAILED, message, details);
-  }
-
-  throwNotFoundError(message: string, details?: unknown): never {
-    throw new MCPErrorInstance(MCPErrorCodes.METHOD_NOT_FOUND, message, details);
-  }
-
-  throwAuthenticationError(message: string, details?: unknown): never {
-    throw new MCPErrorInstance(MCPErrorCodes.AUTHENTICATION_FAILED, message, details);
-  }
-
-  throwRateLimitError(message: string, details?: unknown): never {
-    throw new MCPErrorInstance(MCPErrorCodes.RATE_LIMITED, message, details);
-  }
-
-  throwQuotaExceededError(message: string, details?: unknown): never {
-    throw new MCPErrorInstance(MCPErrorCodes.QUOTA_EXCEEDED, message, details);
-  }
-
-  /**
-   * Convert MCP error codes to HTTP status codes
-   */
-  private getHttpStatusFromMCPError(code: MCPErrorCodes): number {
-    switch (code) {
-      case MCPErrorCodes.PARSE_ERROR:
-        return 400; // Bad Request
-      case MCPErrorCodes.INVALID_REQUEST:
-        return 400; // Bad Request
-      case MCPErrorCodes.METHOD_NOT_FOUND:
-        return 404; // Not Found
-      case MCPErrorCodes.INVALID_PARAMS:
-        return 400; // Bad Request
-      case MCPErrorCodes.INTERNAL_ERROR:
-        return 500; // Internal Server Error
-      case MCPErrorCodes.SERVER_ERROR:
-        return 500; // Internal Server Error
-      case MCPErrorCodes.TOOL_NOT_FOUND:
-        return 404; // Not Found
-      case MCPErrorCodes.AUTHENTICATION_FAILED:
-        return 401; // Unauthorized
-      case MCPErrorCodes.AUTHORIZATION_FAILED:
-        return 403; // Forbidden
-      case MCPErrorCodes.QUOTA_EXCEEDED:
-        return 429; // Too Many Requests
-      case MCPErrorCodes.RATE_LIMITED:
-        return 429; // Too Many Requests
-      case MCPErrorCodes.VALIDATION_FAILED:
-        return 400; // Bad Request
-      case MCPErrorCodes.EXTERNAL_API_ERROR:
-        return 502; // Bad Gateway
-      case MCPErrorCodes.CACHE_ERROR:
-        return 500; // Internal Server Error
-      case MCPErrorCodes.CONFIGURATION_ERROR:
-        return 500; // Internal Server Error
+  private mapHttpToMCPErrorCode(httpCode: number): MCPErrorCode {
+    switch (httpCode) {
+      case 400:
+        return MCPErrorCodes.INVALID_REQUEST;
+      case 401:
+        return MCPErrorCodes.INVALID_REQUEST; // Use closest available
+      case 403:
+        return MCPErrorCodes.INVALID_REQUEST; // Use closest available
+      case 404:
+        return MCPErrorCodes.METHOD_NOT_FOUND; // Use closest available
+      case 405:
+        return MCPErrorCodes.METHOD_NOT_FOUND;
+      case 408:
+        return MCPErrorCodes.INTERNAL_ERROR; // Use closest available
+      case 409:
+        return MCPErrorCodes.INTERNAL_ERROR; // Use closest available
+      case 422:
+        return MCPErrorCodes.INVALID_PARAMS;
+      case 429:
+        return MCPErrorCodes.RATE_LIMITED;
+      case 500:
+        return MCPErrorCodes.INTERNAL_ERROR;
+      case 501:
+        return MCPErrorCodes.INTERNAL_ERROR; // Use closest available
+      case 503:
+        return MCPErrorCodes.INTERNAL_ERROR; // Use closest available
       default:
-        return 500; // Internal Server Error
+        return MCPErrorCodes.INTERNAL_ERROR;
     }
   }
 
   /**
-   * Check if error indicates a temporary failure that should be retried
+   * Check if error is retryable
    */
-  isRetryableError(error: MCPError): boolean {
-    const retryableCodes = [
-      MCPErrorCodes.RATE_LIMITED,
-      MCPErrorCodes.EXTERNAL_API_ERROR,
-      MCPErrorCodes.CACHE_ERROR,
-    ];
-    return retryableCodes.includes(error.code);
-  }
-
-  /**
-   * Check if error indicates a client error (4xx)
-   */
-  isClientError(error: MCPError): boolean {
-    const httpStatus = this.getHttpStatusFromMCPError(error.code);
-    return httpStatus >= 400 && httpStatus < 500;
-  }
-
-  /**
-   * Check if error indicates a server error (5xx)
-   */
-  isServerError(error: MCPError): boolean {
-    const httpStatus = this.getHttpStatusFromMCPError(error.code);
-    return httpStatus >= 500;
-  }
-
-  /**
-   * Get retry delay for retryable errors (exponential backoff)
-   */
-  getRetryDelay(attemptNumber: number, baseDelay: number = 1000): number {
-    return Math.min(baseDelay * Math.pow(2, attemptNumber), 30000); // Max 30 seconds
-  }
-}
-
-/**
- * Custom error class for MCP errors
- */
-export class MCPErrorInstance extends Error {
-  public readonly code: MCPErrorCodes;
-  public readonly details?: unknown;
-
-  constructor(code: MCPErrorCodes, message: string, details?: unknown) {
-    super(message);
-    this.name = 'MCPError';
-    this.code = code;
-    this.details = details;
-
-    // Maintain proper stack trace
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, MCPErrorInstance);
-    }
-  }
-
-  /**
-   * Convert to MCP error object
-   */
-  toMCPError(): MCPError {
-    return {
-      code: this.code,
-      message: this.message,
-      data: this.details,
-    };
-  }
-
-  /**
-   * Convert to JSON representation
-   */
-  toJSON(): Record<string, unknown> {
-    return {
-      name: this.name,
-      code: this.code,
-      message: this.message,
-      details: this.details,
-      stack: this.stack,
-    };
-  }
-}
-
-/**
- * Error handler factory for creating pre-configured handlers
- */
-export class ErrorHandlerFactory {
-  static create(logger: LoggerUtil): ErrorHandlerUtil {
-    return new ErrorHandlerUtil(logger);
-  }
-
-  static createWithContext(logger: LoggerUtil, defaultContext: ErrorContext): ErrorHandlerUtil {
-    const handler = new ErrorHandlerUtil(logger);
+  isRetryableError(error: unknown): boolean {
+    const details = this.extractErrorDetails(error);
     
-    // Override methods to include default context
-    const originalHandleError = handler.handleError.bind(handler);
-    handler.handleError = (error: unknown, context?: ErrorContext) => {
-      return originalHandleError(error, { ...defaultContext, ...context });
-    };
+    // Retryable HTTP status codes
+    const retryableCodes = [408, 429, 500, 502, 503, 504];
+    
+    return retryableCodes.includes(details.code);
+  }
 
-    return handler;
+  /**
+   * Get retry delay for exponential backoff
+   */
+  getRetryDelay(attempt: number, baseDelay: number = 1000, maxDelay: number = 30000): number {
+    const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+    // Add jitter to prevent thundering herd
+    const jitter = Math.random() * 0.1 * delay;
+    return Math.floor(delay + jitter);
+  }
+
+  /**
+   * Execute function with retry logic
+   */
+  async withRetry<T>(
+    fn: () => Promise<T>,
+    maxRetries: number = 3,
+    baseDelay: number = 1000,
+    context?: ErrorContext
+  ): Promise<T> {
+    let lastError: unknown;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        
+        if (attempt === maxRetries || !this.isRetryableError(error)) {
+          this.handleError(error, { ...context, metadata: { attempt, maxRetries } });
+          throw error;
+        }
+
+        const delay = this.getRetryDelay(attempt, baseDelay);
+        
+        this.logger.warn('Retrying after error', {
+          attempt: attempt + 1,
+          maxRetries,
+          delay,
+          error: error instanceof Error ? error.message : String(error),
+          context,
+        });
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
+   * Create user-friendly error message
+   */
+  createUserFriendlyMessage(error: unknown): string {
+    const details = this.extractErrorDetails(error);
+    
+    switch (details.code) {
+      case 400:
+        return 'Invalid request. Please check your input and try again.';
+      case 401:
+        return 'Authentication required. Please provide valid credentials.';
+      case 403:
+        return 'Access denied. You do not have permission to perform this action.';
+      case 404:
+        return 'The requested resource was not found.';
+      case 429:
+        return 'Rate limit exceeded. Please wait a moment and try again.';
+      case 500:
+        return 'An internal server error occurred. Please try again later.';
+      case 503:
+        return 'Service temporarily unavailable. Please try again later.';
+      default:
+        return 'An unexpected error occurred. Please try again.';
+    }
+  }
+
+  /**
+   * Sanitize error for client response (remove sensitive information)
+   */
+  sanitizeError(error: unknown, includeStack: boolean = false): Partial<ErrorDetails> {
+    const details = this.extractErrorDetails(error);
+    
+    return {
+      code: details.code,
+      message: details.message,
+      details: details.details,
+      ...(includeStack && { stack: details.stack }),
+    };
   }
 }

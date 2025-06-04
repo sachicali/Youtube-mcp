@@ -34,6 +34,7 @@ export interface JSONSchema {
   multipleOf?: number;
   exclusiveMinimum?: number;
   exclusiveMaximum?: number;
+  default?: unknown; // Added for default values
 }
 
 // MCP Error Codes (as const enum for runtime usage)

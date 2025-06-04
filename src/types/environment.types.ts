@@ -5,13 +5,8 @@
  * and Cloudflare Workers-specific bindings.
  */
 
-// Temporary KVNamespace interface (until @cloudflare/workers-types is available)
-interface KVNamespace {
-  get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }): Promise<string | null>;
-  put(key: string, value: string | ArrayBuffer | ArrayBufferView | ReadableStream, options?: { expiration?: number; expirationTtl?: number }): Promise<void>;
-  delete(key: string): Promise<void>;
-  list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{ keys: { name: string; expiration?: number }[]; list_complete: boolean; cursor?: string }>;
-}
+// Import KVNamespace from cloudflare types
+import type { KVNamespace } from './cloudflare.types';
 
 // Cloudflare Workers Environment (available as 'env' parameter)
 export interface CloudflareEnvironment {
@@ -25,7 +20,7 @@ export interface CloudflareEnvironment {
   OAUTH_CLIENT_SECRET?: string;
   
   // KV Namespaces (bound in wrangler.toml)
-  CACHE: KVNamespace;
+  CACHE_KV: KVNamespace;
   RATE_LIMITS: KVNamespace;
   
   // Optional external service URLs

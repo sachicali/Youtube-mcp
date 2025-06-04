@@ -1,138 +1,89 @@
 /**
- * YouTube Scraping MCP Server - Main Entry Point
+ * YouTube Scraping MCP Server
  * 
- * Cloudflare Workers entry point for the MCP server with tool registry,
- * request handling, and error boundaries.
+ * Main entry point for the Cloudflare Workers-based MCP server
+ * providing YouTube content analysis and transcript extraction tools.
  */
 
 import type { CloudflareEnvironment } from '@/types/environment.types';
-import type { MCPRequest, MCPResponse, MCPContext } from '@/types/mcp.types';
-import { MCPErrorCodes } from '@/types/mcp.types';
+import './types/cloudflare.types'; // Import global type augmentations
 import { ConfigurationService } from '@/services/configuration.service';
+import { LoggerUtil } from '@/utils/logger.util';
 import { ToolRegistryUtil } from '@/utils/tool-registry.util';
 import { ErrorHandlerUtil } from '@/utils/error-handler.util';
-import { LoggerUtil } from '@/utils/logger.util';
+import type { 
+  MCPRequest, 
+  MCPResponse, 
+  MCPContext, 
+  MCPToolListResponse,
+  MCPServerInfo 
+} from '@/types/mcp.types';
+import { MCPErrorCodes } from '@/types/mcp.types';
 
-// Cloudflare Workers type definitions (temporary)
-interface ExportedHandler<Env = unknown> {
+// Cloudflare Workers Handler Interface
+interface ExportedHandler<Env = CloudflareEnvironment> {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response>;
 }
 
-declare global {
-  const Request: typeof globalThis.Request;
-  const Response: typeof globalThis.Response;
-  const ExecutionContext: typeof globalThis.ExecutionContext;
-  const crypto: typeof globalThis.crypto;
-  const console: typeof globalThis.console;
-}
-
-// Global instances (initialized once per worker)
-let configService: ConfigurationService;
-let toolRegistry: ToolRegistryUtil;
-let errorHandler: ErrorHandlerUtil;
-let logger: LoggerUtil;
+// Global service instances (lazy loaded)
+let configService: ConfigurationService | null = null;
+let logger: LoggerUtil | null = null;
+let toolRegistry: ToolRegistryUtil | null = null;
+let errorHandler: ErrorHandlerUtil | null = null;
 
 /**
- * Cloudflare Workers fetch event handler
- * Entry point for all HTTP requests to the MCP server
+ * Main Cloudflare Workers export
  */
 export default {
   async fetch(request: Request, env: CloudflareEnvironment, ctx: ExecutionContext): Promise<Response> {
-    const startTime = Date.now();
-    const requestId = crypto.randomUUID();
-    
     try {
-      // Initialize services on first request
-      if (!configService) {
-        await initializeServices(env);
-      }
-
-      // Create MCP context for this request
-      const context = createMCPContext(request, env, requestId);
-      
-      // Log incoming request
-      logger.info('Incoming request', {
-        requestId,
-        method: request.method,
-        url: request.url,
-        userAgent: request.headers.get('User-Agent'),
-      });
+      // Initialize services (lazy loading)
+      await initializeServices(env);
 
       // Handle CORS preflight
       if (request.method === 'OPTIONS') {
         return handleCORS();
       }
 
-      // Validate request method
-      if (request.method !== 'POST') {
-        return errorHandler.createErrorResponse(
-          MCPErrorCodes.INVALID_REQUEST,
-          'Only POST requests are supported',
-          requestId
-        );
-      }
+      // Parse and route the request
+      return await handleRequest(request, env, ctx);
 
-      // Parse and validate MCP request
-      const mcpRequest = await parseMCPRequest(request);
-      if (!mcpRequest) {
-        return errorHandler.createErrorResponse(
-          MCPErrorCodes.PARSE_ERROR,
-          'Invalid JSON or missing required fields',
-          requestId
-        );
-      }
-
-      // Handle the MCP request
-      const mcpResponse = await handleMCPRequest(mcpRequest, context);
-
-      // Create HTTP response
-      const response = new Response(JSON.stringify(mcpResponse), {
-        status: 200,
+    } catch (error) {
+      // Fallback error handling if services aren't initialized
+      console.error('Critical error in main handler:', error);
+      return new Response(JSON.stringify({
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: MCPErrorCodes.INTERNAL_ERROR,
+          message: 'Internal server error',
+          data: { error: error instanceof Error ? error.message : String(error) }
+        }
+      }), {
+        status: 500,
         headers: {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         },
       });
-
-      // Log response metrics
-      const processingTime = Date.now() - startTime;
-      logger.info('Request completed', {
-        requestId,
-        processingTime,
-        success: !mcpResponse.error,
-      });
-
-      return response;
-
-    } catch (error) {
-      // Handle unexpected errors
-      logger.error('Unhandled error in fetch handler', {
-        requestId,
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-
-      return errorHandler.createErrorResponse(
-        MCPErrorCodes.INTERNAL_ERROR,
-        'Internal server error',
-        requestId
-      );
     }
-  },
-} satisfies ExportedHandler<CloudflareEnvironment>;
+  }
+} satisfies ExportedHandler;
 
 /**
- * Initialize all services and utilities
+ * Initialize all services with lazy loading pattern
  */
 async function initializeServices(env: CloudflareEnvironment): Promise<void> {
+  if (configService && logger && toolRegistry && errorHandler) {
+    return; // Already initialized
+  }
+
   try {
     // Initialize configuration service
     configService = new ConfigurationService(env);
     await configService.initialize();
 
-    // Initialize logger with configuration
+    // Initialize logger
     logger = new LoggerUtil(configService.getConfiguration());
 
     // Initialize error handler
@@ -142,9 +93,10 @@ async function initializeServices(env: CloudflareEnvironment): Promise<void> {
     toolRegistry = new ToolRegistryUtil(configService, logger);
     await toolRegistry.initialize();
 
-    logger.info('Services initialized successfully', {
+    logger.info('All services initialized successfully', {
+      toolCount: toolRegistry.count(),
       environment: configService.getEnvironment(),
-      toolCount: toolRegistry.getRegisteredToolCount(),
+      debug: configService.isDebugMode(),
     });
 
   } catch (error) {
@@ -154,210 +106,273 @@ async function initializeServices(env: CloudflareEnvironment): Promise<void> {
 }
 
 /**
- * Create MCP context from request and environment
+ * Handle incoming MCP requests
  */
-function createMCPContext(
-  request: Request,
-  env: CloudflareEnvironment,
-  requestId: string
-): MCPContext {
-  const userAgent = request.headers.get('User-Agent');
-  const authorization = request.headers.get('Authorization');
-
-  return {
-    environment: env.ENVIRONMENT,
-    requestId,
-    userAgent: userAgent || undefined,
-    clientInfo: parseClientInfo(userAgent),
-    auth: parseAuthHeader(authorization),
-  };
-}
-
-/**
- * Parse client information from User-Agent header
- */
-function parseClientInfo(userAgent: string | null): { name: string; version: string } | undefined {
-  if (!userAgent) return undefined;
-
-  // Basic client info extraction (can be enhanced)
-  const match = userAgent.match(/(\w+)\/(\d+\.\d+\.\d+)/);
-  if (match) {
-    return {
-      name: match[1],
-      version: match[2],
-    };
+async function handleRequest(
+  request: Request, 
+  env: CloudflareEnvironment, 
+  ctx: ExecutionContext
+): Promise<Response> {
+  if (!logger || !errorHandler || !toolRegistry || !configService) {
+    throw new Error('Services not initialized');
   }
 
-  return {
-    name: 'Unknown',
-    version: '0.0.0',
-  };
-}
+  const requestId = crypto.randomUUID();
+  const startTime = Date.now();
 
-/**
- * Parse authentication from Authorization header
- */
-function parseAuthHeader(authorization: string | null): MCPContext['auth'] {
-  if (!authorization) return undefined;
+  try {
+    // Log incoming request
+    logger.info('Incoming request', {
+      requestId,
+      method: request.method,
+      url: request.url,
+      userAgent: request.headers.get('User-Agent'),
+    });
 
-  if (authorization.startsWith('Bearer ')) {
-    const token = authorization.substring(7);
-    // For now, treat all bearer tokens as API keys
-    // OAuth implementation would decode JWT here
-    return {
-      type: 'api_key',
-      userId: 'api_user', // Would extract from token in real implementation
-      scopes: [], // Would extract from token
+    // Only allow POST requests for MCP
+    if (request.method !== 'POST') {
+      return errorHandler.createErrorResponse(
+        MCPErrorCodes.METHOD_NOT_FOUND,
+        'Only POST requests are allowed',
+        requestId
+      );
+    }
+
+    // Parse MCP request
+    const mcpRequest = await parseMCPRequest(request);
+    if (!mcpRequest) {
+      return errorHandler.createErrorResponse(
+        MCPErrorCodes.PARSE_ERROR,
+        'Invalid JSON-RPC request format',
+        requestId
+      );
+    }
+
+    // Create execution context
+    const mcpContext: MCPContext = {
+      environment: configService.getEnvironment(),
+      requestId,
+      userAgent: request.headers.get('User-Agent') || undefined,
+      clientInfo: parseClientInfo(request),
+      auth: parseAuthInfo(request),
     };
-  }
 
-  return undefined;
+    // Route the request
+    const response = await routeMCPRequest(mcpRequest, mcpContext);
+    
+    // Log successful response
+    const executionTime = Date.now() - startTime;
+    logger.info('Request completed successfully', {
+      requestId,
+      method: mcpRequest.method,
+      executionTime,
+    });
+
+    return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'X-Request-ID': requestId,
+        'X-Execution-Time': executionTime.toString(),
+      },
+    });
+
+  } catch (error) {
+    const executionTime = Date.now() - startTime;
+    logger.error('Request failed', {
+      requestId,
+      executionTime,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    // Handle known MCP errors
+    if (error instanceof Error && 'code' in error) {
+      return errorHandler.createErrorResponse(
+        (error as any).code,
+        error.message,
+        requestId
+      );
+    }
+
+    // Handle unknown errors
+    return errorHandler.createErrorResponse(
+      MCPErrorCodes.INTERNAL_ERROR,
+      'Internal server error',
+      requestId
+    );
+  }
 }
 
 /**
- * Parse incoming request as MCP request
+ * Parse JSON-RPC request from HTTP request
  */
 async function parseMCPRequest(request: Request): Promise<MCPRequest | null> {
   try {
-    const body = await request.json() as MCPRequest;
+    const body = await request.json();
     
-    // Validate required MCP fields
+    // Validate basic JSON-RPC structure
     if (
-      body.jsonrpc !== '2.0' ||
-      typeof body.id === 'undefined' ||
-      typeof body.method !== 'string'
+      typeof body === 'object' &&
+      body !== null &&
+      body.jsonrpc === '2.0' &&
+      ('id' in body) &&
+      typeof body.method === 'string'
     ) {
-      return null;
+      return body as MCPRequest;
     }
 
-    return body;
+    return null;
   } catch {
     return null;
   }
 }
 
 /**
- * Handle MCP request routing and execution
+ * Route MCP requests to appropriate handlers
  */
-async function handleMCPRequest(
-  request: MCPRequest,
-  context: MCPContext
-): Promise<MCPResponse> {
+async function routeMCPRequest(request: MCPRequest, context: MCPContext): Promise<MCPResponse> {
+  if (!toolRegistry || !logger) {
+    throw new Error('Services not initialized');
+  }
+
+  const { method, params, id } = request;
+
   try {
-    // Route different MCP methods
-    switch (request.method) {
+    switch (method) {
+      case 'initialize':
+        return handleInitialize(id);
+
       case 'tools/list':
-        return await handleToolsList(request, context);
-      
+        return handleToolsList(id);
+
       case 'tools/call':
-        return await handleToolCall(request, context);
-      
+        return await handleToolCall(params, context, id);
+
       case 'ping':
-        return await handlePing(request, context);
-      
+        return handlePing(id);
+
       default:
-        return {
-          jsonrpc: '2.0',
-          id: request.id,
-          error: {
-            code: MCPErrorCodes.METHOD_NOT_FOUND,
-            message: `Method not found: ${request.method}`,
-          },
-        };
+        throw new Error(`Unknown method: ${method}`);
     }
   } catch (error) {
-    logger.error('Error handling MCP request', {
+    logger.error('Method execution failed', {
+      method,
       requestId: context.requestId,
-      method: request.method,
       error: error instanceof Error ? error.message : String(error),
     });
 
     return {
       jsonrpc: '2.0',
-      id: request.id,
+      id,
       error: {
-        code: MCPErrorCodes.INTERNAL_ERROR,
-        message: 'Internal error processing request',
-        data: error instanceof Error ? error.message : String(error),
+        code: MCPErrorCodes.METHOD_NOT_FOUND,
+        message: error instanceof Error ? error.message : 'Unknown error',
       },
     };
   }
 }
 
 /**
- * Handle tools/list request
+ * Handle initialize method
  */
-async function handleToolsList(
-  request: MCPRequest,
-  context: MCPContext
-): Promise<MCPResponse> {
-  const tools = toolRegistry.listTools();
-  
-  return {
-    jsonrpc: '2.0',
-    id: request.id,
-    result: {
-      tools: tools.map(tool => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      })),
+function handleInitialize(id: string | number): MCPResponse {
+  const serverInfo: MCPServerInfo = {
+    name: 'YouTube Scraping MCP Server',
+    version: '1.0.0',
+    protocolVersion: '2024-11-05',
+    capabilities: {
+      tools: {
+        listChanged: false,
+      },
+      logging: {},
     },
   };
-}
-
-/**
- * Handle tools/call request
- */
-async function handleToolCall(
-  request: MCPRequest,
-  context: MCPContext
-): Promise<MCPResponse> {
-  const params = request.params as { name?: string; arguments?: unknown };
-  
-  if (!params?.name) {
-    return {
-      jsonrpc: '2.0',
-      id: request.id,
-      error: {
-        code: MCPErrorCodes.INVALID_PARAMS,
-        message: 'Missing tool name parameter',
-      },
-    };
-  }
-
-  const result = await toolRegistry.executeTool(
-    params.name,
-    params.arguments || {},
-    context
-  );
 
   return {
     jsonrpc: '2.0',
-    id: request.id,
-    result,
+    id,
+    result: serverInfo,
   };
 }
 
 /**
- * Handle ping request for health checks
+ * Handle tools/list method
  */
-async function handlePing(
-  request: MCPRequest,
-  context: MCPContext
-): Promise<MCPResponse> {
+function handleToolsList(id: string | number): MCPResponse {
+  if (!toolRegistry) {
+    throw new Error('Tool registry not initialized');
+  }
+
+  const tools = toolRegistry.listTools();
+  const response: MCPToolListResponse = {
+    tools: tools.map((tool: { name: string; description: string; inputSchema: any }) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    })),
+  };
+
   return {
     jsonrpc: '2.0',
-    id: request.id,
+    id,
+    result: response,
+  };
+}
+
+/**
+ * Handle tools/call method
+ */
+async function handleToolCall(
+  params: unknown,
+  context: MCPContext,
+  id: string | number
+): Promise<MCPResponse> {
+  if (!toolRegistry) {
+    throw new Error('Tool registry not initialized');
+  }
+
+  // Validate params structure
+  if (
+    typeof params !== 'object' ||
+    params === null ||
+    !('name' in params) ||
+    typeof params.name !== 'string'
+  ) {
+    throw new Error('Invalid tool call parameters');
+  }
+
+  const { name, arguments: toolArgs } = params as { name: string; arguments?: unknown };
+
+  try {
+    const result = await toolRegistry.executeTool(name, toolArgs, context);
+    
+    return {
+      jsonrpc: '2.0',
+      id,
+      result,
+    };
+  } catch (error) {
+    throw error; // Re-throw to be handled by outer error handling
+  }
+}
+
+/**
+ * Handle ping method
+ */
+function handlePing(id: string | number): MCPResponse {
+  if (!toolRegistry) {
+    throw new Error('Tool registry not initialized');
+  }
+
+  return {
+    jsonrpc: '2.0',
+    id,
     result: {
-      pong: true,
+      status: 'healthy',
       timestamp: new Date().toISOString(),
-      environment: context.environment,
-      serverInfo: {
-        name: 'YouTube Scraping MCP Server',
-        version: '0.1.0',
-        capabilities: toolRegistry.listTools().map(tool => tool.name),
-      },
+      version: '1.0.0',
+      capabilities: toolRegistry.listTools().map((tool: { name: string }) => tool.name),
     },
   };
 }
@@ -367,7 +382,7 @@ async function handlePing(
  */
 function handleCORS(): Response {
   return new Response(null, {
-    status: 200,
+    status: 204,
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -375,4 +390,37 @@ function handleCORS(): Response {
       'Access-Control-Max-Age': '86400',
     },
   });
+}
+
+/**
+ * Parse client information from request headers
+ */
+function parseClientInfo(request: Request): { name: string; version: string } | undefined {
+  const userAgent = request.headers.get('User-Agent');
+  if (!userAgent) return undefined;
+
+  // Simple user agent parsing - could be enhanced
+  return {
+    name: userAgent.split(' ')[0] || 'Unknown',
+    version: '1.0.0',
+  };
+}
+
+/**
+ * Parse authentication information from request headers
+ */
+function parseAuthInfo(request: Request): MCPContext['auth'] | undefined {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader) return undefined;
+
+  // Basic API key authentication
+  if (authHeader.startsWith('Bearer ')) {
+    return {
+      type: 'api_key',
+      userId: 'anonymous',
+      scopes: ['read'],
+    };
+  }
+
+  return undefined;
 }
