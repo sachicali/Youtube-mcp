@@ -3,32 +3,176 @@ main = "src/index.ts"
 compatibility_date = "2024-01-01"
 node_compat = true
 
+# =================================================================
+# Development Environment Configuration
+# =================================================================
+# Development environment automatically loads .env files
+# Sensitive data (API keys) should be in .env file
+# Non-sensitive configuration defined here
+
 [env.development]
-vars = { ENVIRONMENT = "development", DEBUG_MODE = "true" }
+[env.development.vars]
+ENVIRONMENT = "development"
+LOG_LEVEL = "debug"
+DEBUG_MODE = "true"
+CACHE_TTL = "3600"
+MAX_RETRIES = "3"
+RATE_LIMIT_PER_MINUTE = "60"
+MEMORY_CACHE_TTL = "300"
+KV_CACHE_TTL = "3600"
+LONG_TERM_CACHE_TTL = "86400"
+MAX_RESPONSE_TIME = "500"
+API_BATCH_SIZE = "50"
+CORS_ALLOWED_ORIGINS = "*"
+ENABLE_METRICS = "true"
+QUOTA_WARNING_THRESHOLD = "80"
+CIRCUIT_BREAKER_THRESHOLD = "5"
+CIRCUIT_BREAKER_TIMEOUT = "30000"
+HEALTH_CHECK_TIMEOUT = "5000"
+ERROR_NOTIFICATION_THRESHOLD = "10"
+METRICS_RETENTION_DAYS = "30"
+
+# Development KV Namespaces
+[[env.development.kv_namespaces]]
+binding = "CACHE"
+id = "youtube_cache_dev"
+preview_id = "youtube_cache_dev_preview"
+
+[[env.development.kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "rate_limits_dev"
+preview_id = "rate_limits_dev_preview"
+
+# =================================================================
+# Staging Environment Configuration
+# =================================================================
+
+[env.staging]
+[env.staging.vars]
+ENVIRONMENT = "staging"
+LOG_LEVEL = "info"
+DEBUG_MODE = "false"
+CACHE_TTL = "7200"
+MAX_RETRIES = "3"
+RATE_LIMIT_PER_MINUTE = "100"
+MEMORY_CACHE_TTL = "600"
+KV_CACHE_TTL = "7200"
+LONG_TERM_CACHE_TTL = "172800"
+MAX_RESPONSE_TIME = "500"
+API_BATCH_SIZE = "50"
+CORS_ALLOWED_ORIGINS = "*"
+ENABLE_METRICS = "true"
+QUOTA_WARNING_THRESHOLD = "70"
+CIRCUIT_BREAKER_THRESHOLD = "3"
+CIRCUIT_BREAKER_TIMEOUT = "20000"
+HEALTH_CHECK_TIMEOUT = "5000"
+ERROR_NOTIFICATION_THRESHOLD = "5"
+METRICS_RETENTION_DAYS = "30"
+
+# Staging KV Namespaces
+[[env.staging.kv_namespaces]]
+binding = "CACHE"
+id = "youtube_cache_staging"
+preview_id = "youtube_cache_staging_preview"
+
+[[env.staging.kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "rate_limits_staging"
+preview_id = "rate_limits_staging_preview"
+
+# =================================================================
+# Production Environment Configuration
+# =================================================================
 
 [env.production]
-vars = { ENVIRONMENT = "production", DEBUG_MODE = "false" }
+[env.production.vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "warn"
+DEBUG_MODE = "false"
+CACHE_TTL = "86400"
+MAX_RETRIES = "5"
+RATE_LIMIT_PER_MINUTE = "200"
+MEMORY_CACHE_TTL = "900"
+KV_CACHE_TTL = "14400"
+LONG_TERM_CACHE_TTL = "604800"
+MAX_RESPONSE_TIME = "500"
+API_BATCH_SIZE = "50"
+CORS_ALLOWED_ORIGINS = "https://yourdomain.com"
+ENABLE_METRICS = "true"
+QUOTA_WARNING_THRESHOLD = "85"
+CIRCUIT_BREAKER_THRESHOLD = "3"
+CIRCUIT_BREAKER_TIMEOUT = "30000"
+HEALTH_CHECK_TIMEOUT = "3000"
+ERROR_NOTIFICATION_THRESHOLD = "5"
+METRICS_RETENTION_DAYS = "90"
 
-[[kv_namespaces]]
+# Production KV Namespaces
+[[env.production.kv_namespaces]]
 binding = "CACHE"
-id = "youtube_cache_namespace"
-preview_id = "youtube_cache_namespace_preview"
+id = "youtube_cache_prod"
+preview_id = "youtube_cache_prod_preview"
 
-[[kv_namespaces]]
+[[env.production.kv_namespaces]]
 binding = "RATE_LIMITS"
-id = "rate_limits_namespace"
-preview_id = "rate_limits_namespace_preview"
+id = "rate_limits_prod"
+preview_id = "rate_limits_prod_preview"
 
-[vars]
-# These will be set in Cloudflare dashboard or via wrangler secret
-# YOUTUBE_API_KEY = "your-youtube-api-key"
-# OAUTH_CLIENT_ID = "your-oauth-client-id"
-# OAUTH_CLIENT_SECRET = "your-oauth-client-secret"
+# =================================================================
+# Build Configuration
+# =================================================================
 
 [build]
 command = "npm run build"
+
+# =================================================================
+# Development Server Configuration
+# =================================================================
 
 [dev]
 port = 8787
 local_protocol = "http"
 upstream_protocol = "https"
+# Development server automatically loads .env files
+
+# =================================================================
+# Environment Variable Management
+# =================================================================
+
+# SENSITIVE VARIABLES (managed via Cloudflare Secrets):
+#
+# Development:
+#   - Loaded from .env file automatically
+#   - YOUTUBE_API_KEY=your_dev_api_key
+#
+# Staging:
+#   wrangler secret put YOUTUBE_API_KEY --env staging
+#
+# Production:
+#   wrangler secret put YOUTUBE_API_KEY --env production
+#
+# =================================================================
+# Setup Commands Reference
+# =================================================================
+#
+# 1. Development (uses .env automatically):
+#    cp .env.example .env
+#    # Edit .env with your API keys
+#    wrangler dev
+#
+# 2. Create KV Namespaces:
+#    wrangler kv:namespace create "CACHE" --env development
+#    wrangler kv:namespace create "RATE_LIMITS" --env development
+#    wrangler kv:namespace create "CACHE" --env staging
+#    wrangler kv:namespace create "RATE_LIMITS" --env staging
+#    wrangler kv:namespace create "CACHE" --env production
+#    wrangler kv:namespace create "RATE_LIMITS" --env production
+#
+# 3. Set Production Secrets:
+#    wrangler secret put YOUTUBE_API_KEY --env production
+#
+# 4. Deploy:
+#    wrangler deploy --env development
+#    wrangler deploy --env staging
+#    wrangler deploy --env production
+#
+# =================================================================

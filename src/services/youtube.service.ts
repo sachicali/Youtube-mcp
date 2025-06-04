@@ -22,6 +22,7 @@ export interface YouTubeServiceInterface {
   getVideoTranscript(videoUrl: string, language?: string): Promise<VideoTranscript>;
   getVideoMetrics(videoId: string): Promise<VideoMetrics>;
   getVideoInfo(videoId: string): Promise<VideoInfo>;
+  makeAPIRequest(endpoint: string, params: Record<string, string>): Promise<any>;
 }
 
 export class YouTubeService implements YouTubeServiceInterface {
@@ -303,10 +304,20 @@ export class YouTubeService implements YouTubeServiceInterface {
   }
 
   /**
+   * Public method to make YouTube API requests (for tool usage)
+   */
+  async makeAPIRequest(
+    endpoint: string,
+    params: Record<string, string>
+  ): Promise<any> {
+    return this.makeYouTubeAPIRequest(endpoint, params);
+  }
+
+  /**
    * Make YouTube API request with error handling and rate limiting
    */
   private async makeYouTubeAPIRequest(
-    endpoint: string, 
+    endpoint: string,
     params: Record<string, string>
   ): Promise<any> {
     const url = new URL(`${this.baseUrl}/${endpoint}`);

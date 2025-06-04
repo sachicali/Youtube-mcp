@@ -464,28 +464,206 @@ export class ToolRegistryUtil implements MCPToolRegistry {
       },
       {
         name: 'getVideoAnalytics',
-        description: 'Get analytics and metrics for a YouTube video',
+        description: 'Get comprehensive analytics and statistics for a YouTube video',
         inputSchema: {
           type: 'object',
           properties: {
-            videoId: {
+            url: {
               type: 'string',
-              description: 'YouTube video ID (11 characters)',
-              pattern: '^[a-zA-Z0-9_-]{11}$',
+              description: 'YouTube video URL (any format) or video ID',
+              minLength: 11,
+            },
+            includeChannel: {
+              type: 'boolean',
+              description: 'Include detailed channel analytics',
+              default: true,
+            },
+            includeEngagement: {
+              type: 'boolean',
+              description: 'Calculate engagement metrics and ratios',
+              default: true,
             },
           },
-          required: ['videoId'],
+          required: ['url'],
           additionalProperties: false,
         },
         handler: async (input: unknown, context: MCPContext): Promise<MCPToolResponse> => {
-          // Placeholder implementation
-          return {
-            content: [{
-              type: 'text',
-              text: 'Tool implementation pending - getVideoAnalytics placeholder',
-            }],
-            isError: false,
-          };
+          try {
+            // Import services dynamically to avoid circular dependencies
+            const { YouTubeService } = await import('@/services/youtube.service');
+            const { ConfigurationService } = await import('@/services/configuration.service');
+            const { LoggerUtil } = await import('@/utils/logger.util');
+            
+            // Validate input
+            const validatedInput = input as {
+              url: string;
+              includeChannel?: boolean;
+              includeEngagement?: boolean;
+            };
+            
+            // Get environment from context
+            const env = (context as any).env as import('@/types/environment.types').CloudflareEnvironment;
+            if (!env) {
+              throw new Error('Environment not available in execution context');
+            }
+
+            // Initialize services
+            const config = new ConfigurationService(env);
+            await config.initialize();
+            
+            const logger = new LoggerUtil(config.getConfiguration());
+            const youtubeService = new YouTubeService(config, logger, env);
+
+            // Extract video ID from URL
+            const videoId = YouTubeService.extractVideoId(validatedInput.url);
+            if (!videoId) {
+              throw new Error(`Invalid YouTube URL or video ID: ${validatedInput.url}`);
+            }
+
+            // Validate video ID format
+            if (!YouTubeService.isValidVideoId(videoId)) {
+              throw new Error(`Invalid video ID format: ${videoId}`);
+            }
+
+            // Get comprehensive video information
+            const videoInfo = await youtubeService.getVideoInfo(videoId);
+            
+            // Get video metrics
+            const metrics = await youtubeService.getVideoMetrics(videoId);
+
+            // Get channel information if requested
+            let channelInfo: any = null;
+            if (validatedInput.includeChannel !== false) {
+              try {
+                // Make YouTube API request for channel information
+                const channelResponse = await youtubeService.makeAPIRequest('channels', {
+                  part: 'snippet,statistics',
+                  id: videoInfo.channelId,
+                });
+
+                if (channelResponse.items && channelResponse.items.length > 0) {
+                  const channel = channelResponse.items[0];
+                  channelInfo = {
+                    id: channel.id,
+                    title: channel.snippet.title,
+                    customUrl: channel.snippet.customUrl,
+                    publishedAt: channel.snippet.publishedAt,
+                    subscriberCount: parseInt(channel.statistics?.subscriberCount || '0'),
+                    videoCount: parseInt(channel.statistics?.videoCount || '0'),
+                    viewCount: parseInt(channel.statistics?.viewCount || '0'),
+                  };
+                }
+              } catch (error) {
+                logger.warn('Failed to get channel information', {
+                  channelId: videoInfo.channelId,
+                  error: error instanceof Error ? error.message : String(error)
+                });
+              }
+            }
+
+            // Calculate advanced analytics if requested
+            let analytics: any = {};
+            if (validatedInput.includeEngagement !== false) {
+              const publishDate = new Date(metrics.publishedAt);
+              const now = new Date();
+              const daysFromUpload = Math.floor((now.getTime() - publishDate.getTime()) / (1000 * 60 * 60 * 24));
+              
+              // Calculate engagement metrics
+              const engagementRate = metrics.viewCount > 0 ?
+                ((metrics.likeCount + metrics.commentCount) / metrics.viewCount) * 100 : 0;
+              const likeToViewRatio = metrics.viewCount > 0 ?
+                (metrics.likeCount / metrics.viewCount) * 100 : 0;
+              const commentToViewRatio = metrics.viewCount > 0 ?
+                (metrics.commentCount / metrics.viewCount) * 100 : 0;
+              const averageViewsPerDay = daysFromUpload > 0 ?
+                metrics.viewCount / daysFromUpload : metrics.viewCount;
+
+              // Determine performance category
+              let performanceCategory: 'viral' | 'high' | 'average' | 'low' = 'low';
+              if (engagementRate > 10) performanceCategory = 'viral';
+              else if (engagementRate > 5) performanceCategory = 'high';
+              else if (engagementRate > 2) performanceCategory = 'average';
+
+              analytics = {
+                engagementRate: Math.round(engagementRate * 100) / 100,
+                likeToViewRatio: Math.round(likeToViewRatio * 100) / 100,
+                commentToViewRatio: Math.round(commentToViewRatio * 100) / 100,
+                averageViewsPerDay: Math.round(averageViewsPerDay),
+                performanceCategory,
+                daysFromUpload,
+              };
+            }
+
+            // Parse video duration for better formatting
+            const parseDuration = (duration: string): string => {
+              const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+              if (!match) return duration;
+              
+              const hours = parseInt(match[1] || '0');
+              const minutes = parseInt(match[2] || '0');
+              const seconds = parseInt(match[3] || '0');
+              
+              if (hours > 0) {
+                return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+              }
+              return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            };
+
+            // Calculate quota cost (estimated)
+            let quotaCost = 1; // Base video request
+            if (channelInfo) quotaCost += 1; // Channel request
+            
+            // Build comprehensive analytics response
+            const response = {
+              video: {
+                id: videoInfo.videoId,
+                title: videoInfo.title,
+                description: videoInfo.description.substring(0, 500) + (videoInfo.description.length > 500 ? '...' : ''),
+                publishedAt: metrics.publishedAt,
+                duration: parseDuration(videoInfo.contentDetails.duration),
+                categoryId: videoInfo.categoryId,
+                defaultLanguage: (videoInfo as any).defaultLanguage,
+                tags: videoInfo.tags.slice(0, 10), // Limit tags for readability
+              },
+              statistics: {
+                viewCount: metrics.viewCount,
+                likeCount: metrics.likeCount,
+                commentCount: metrics.commentCount,
+                favoriteCount: metrics.favoriteCount,
+                ...(metrics.dislikeCount !== undefined && { dislikeCount: metrics.dislikeCount }),
+              },
+              ...(channelInfo && {
+                channel: channelInfo,
+              }),
+              ...(Object.keys(analytics).length > 0 && {
+                analytics: analytics,
+              }),
+              metadata: {
+                retrievedAt: new Date().toISOString(),
+                cached: false, // This will be updated by caching logic
+                quota_cost: quotaCost,
+              },
+            };
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(response, null, 2),
+              }],
+              isError: false,
+            };
+
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            
+            return {
+              content: [{
+                type: 'text',
+                text: `Error getting video analytics: ${errorMessage}`,
+              }],
+              isError: true,
+            };
+          }
         },
       },
       {

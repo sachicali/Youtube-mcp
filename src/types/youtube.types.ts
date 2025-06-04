@@ -405,3 +405,75 @@ export type VideoDefinition = 'any' | 'high' | 'standard';
 export type VideoDuration = 'any' | 'long' | 'medium' | 'short';
 export type VideoLicense = 'any' | 'creativeCommon' | 'youtube';
 export type SafeSearch = 'moderate' | 'none' | 'strict';
+
+// Video Analytics Response Types
+export interface VideoAnalytics {
+  video: {
+    id: string;
+    title: string;
+    description: string;
+    publishedAt: string;
+    duration: string;
+    categoryId: string;
+    defaultLanguage?: string;
+    tags: string[];
+  };
+  statistics: {
+    viewCount: number;
+    likeCount: number;
+    commentCount: number;
+    favoriteCount: number;
+    dislikeCount?: number;
+  };
+  channel?: {
+    id: string;
+    title: string;
+    customUrl?: string;
+    publishedAt: string;
+    subscriberCount: number;
+    videoCount: number;
+    viewCount: number;
+  };
+  analytics?: {
+    engagementRate: number;
+    likeToViewRatio: number;
+    commentToViewRatio: number;
+    averageViewsPerDay: number;
+    performanceCategory: 'viral' | 'high' | 'average' | 'low';
+    daysFromUpload: number;
+  };
+  metadata: {
+    retrievedAt: string;
+    cached: boolean;
+    quota_cost: number;
+  };
+}
+
+// Enhanced channel information for analytics
+export interface ChannelAnalyticsInfo {
+  id: string;
+  title: string;
+  customUrl?: string;
+  publishedAt: string;
+  subscriberCount: number;
+  videoCount: number;
+  viewCount: number;
+  description?: string;
+  thumbnails?: {
+    default?: string;
+    medium?: string;
+    high?: string;
+  };
+}
+
+// Performance metrics for video analytics
+export interface VideoPerformanceMetrics {
+  engagementRate: number;
+  likeToViewRatio: number;
+  commentToViewRatio: number;
+  averageViewsPerDay: number;
+  performanceCategory: 'viral' | 'high' | 'average' | 'low';
+  daysFromUpload: number;
+  socialShareEstimate?: number;
+  retentionRate?: number;
+}

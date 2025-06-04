@@ -51,22 +51,56 @@ npm install
 cp .env.example .env
 ```
 
-### 2. Configuration
+### 2. Environment Setup
 
-Edit `.env` with your YouTube API key:
+#### Development Environment
 
+1. **Copy environment template**:
+```bash
+cp .env.example .env
+```
+
+2. **Edit `.env` with your configuration**:
 ```env
 # Required: YouTube API Configuration
 YOUTUBE_API_KEY=your_youtube_api_key_here
 
-# Required: Cloudflare Configuration
-CACHE_KV=your_kv_namespace_name
-
-# Optional: Server Configuration
+# Optional: Development Configuration
 ENVIRONMENT=development
-LOG_LEVEL=info
-CACHE_TTL=86400
+LOG_LEVEL=debug
+CACHE_TTL=3600
 MAX_RETRIES=3
+```
+
+3. **Create Cloudflare KV Namespaces**:
+```bash
+# Development namespaces
+npx wrangler kv:namespace create "CACHE" --env development
+npx wrangler kv:namespace create "RATE_LIMITS" --env development
+
+# Update wrangler.toml with the returned IDs
+```
+
+#### Production Environment
+
+1. **Set Cloudflare Secrets**:
+```bash
+# Production secrets
+npx wrangler secret put YOUTUBE_API_KEY --env production
+
+# Staging secrets (optional)
+npx wrangler secret put YOUTUBE_API_KEY --env staging
+```
+
+2. **Create Production KV Namespaces**:
+```bash
+# Production namespaces
+npx wrangler kv:namespace create "CACHE" --env production
+npx wrangler kv:namespace create "RATE_LIMITS" --env production
+
+# Staging namespaces (optional)
+npx wrangler kv:namespace create "CACHE" --env staging
+npx wrangler kv:namespace create "RATE_LIMITS" --env staging
 ```
 
 ### 3. Development
@@ -235,41 +269,59 @@ mcp-inspector http://localhost:8787
 # Login to Cloudflare
 npx wrangler login
 
-# Create KV namespaces
-npx wrangler kv:namespace create "CACHE"
-npx wrangler kv:namespace create "RATE_LIMITS"
+# Create KV namespaces for each environment
+npx wrangler kv:namespace create "CACHE" --env development
+npx wrangler kv:namespace create "RATE_LIMITS" --env development
+npx wrangler kv:namespace create "CACHE" --env staging
+npx wrangler kv:namespace create "RATE_LIMITS" --env staging
+npx wrangler kv:namespace create "CACHE" --env production
+npx wrangler kv:namespace create "RATE_LIMITS" --env production
 ```
 
-2. **Update wrangler.toml**:
+2. **Update wrangler.toml with KV IDs**:
 ```toml
-name = "youtube-scraping-mcp-server"
-main = "src/index.ts"
-compatibility_date = "2024-10-04"
-node_compat = true
-
-[[kv_namespaces]]
+# Update the KV namespace IDs returned from the commands above
+[env.development]
+[[env.development.kv_namespaces]]
 binding = "CACHE"
-id = "your-cache-namespace-id"
+id = "your-dev-cache-id"
 
-[[kv_namespaces]]
+[[env.development.kv_namespaces]]
 binding = "RATE_LIMITS"
-id = "your-rate-limits-namespace-id"
+id = "your-dev-rate-limits-id"
 
-[vars]
-ENVIRONMENT = "production"
-LOG_LEVEL = "info"
+[env.production]
+[[env.production.kv_namespaces]]
+binding = "CACHE"
+id = "your-prod-cache-id"
 
-[secrets]
-YOUTUBE_API_KEY = "your-youtube-api-key"
+[[env.production.kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "your-prod-rate-limits-id"
 ```
 
-3. **Deploy**:
+3. **Set Environment Secrets**:
 ```bash
-# Set secrets
-npx wrangler secret put YOUTUBE_API_KEY
+# Development (optional - uses .env file)
+npx wrangler secret put YOUTUBE_API_KEY --env development
+
+# Staging
+npx wrangler secret put YOUTUBE_API_KEY --env staging
+
+# Production
+npx wrangler secret put YOUTUBE_API_KEY --env production
+```
+
+4. **Deploy to Environments**:
+```bash
+# Deploy to development
+npx wrangler deploy --env development
+
+# Deploy to staging
+npx wrangler deploy --env staging
 
 # Deploy to production
-npm run deploy
+npx wrangler deploy --env production
 ```
 
 ### Domain Setup
