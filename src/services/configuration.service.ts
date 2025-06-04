@@ -87,12 +87,16 @@ export class ConfigurationService {
    * Create configuration from environment variables
    */
   private createFromEnvironment(env: CloudflareEnvironment): ServerConfiguration {
-    if (!this.env.YOUTUBE_API_KEY && this.env.ENVIRONMENT === 'development') {
-      console.warn('[ConfigurationService] YOUTUBE_API_KEY is missing in development environment');
-    }
+    // For development, allow graceful handling when API key is missing
+    const isDevelopment = (env.ENVIRONMENT || 'development') === 'development';
     
-    if (!this.env.YOUTUBE_API_KEY) {
-      throw new Error('YOUTUBE_API_KEY is required');
+    if (!env.YOUTUBE_API_KEY) {
+      if (isDevelopment) {
+        console.warn('[ConfigurationService] YOUTUBE_API_KEY is missing in development environment. Some features may not work.');
+        // Allow development to continue with a placeholder
+      } else {
+        throw new Error('YOUTUBE_API_KEY is required');
+      }
     }
 
     return {
@@ -101,7 +105,7 @@ export class ConfigurationService {
       
       apis: {
         youtube: {
-          apiKey: this.env.YOUTUBE_API_KEY,
+          apiKey: env.YOUTUBE_API_KEY || '',
           baseUrl: 'https://www.googleapis.com/youtube/v3',
           quotaLimit: 10000, // YouTube API v3 daily quota
           requestsPerSecond: 10, // Conservative rate limiting

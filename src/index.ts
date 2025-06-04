@@ -131,8 +131,14 @@ async function handleRequest(
 
     // Only allow POST requests for MCP
     if (request.method !== 'POST') {
+      logger.error('Only POST requests are allowed', {
+        requestId,
+        httpCode: 405,
+        mcpCode: MCPErrorCodes.METHOD_NOT_FOUND,
+      });
+      
       return errorHandler.createErrorResponse(
-        MCPErrorCodes.METHOD_NOT_FOUND,
+        405, // Method Not Allowed
         'Only POST requests are allowed',
         requestId
       );
@@ -142,7 +148,7 @@ async function handleRequest(
     const mcpRequest = await parseMCPRequest(request);
     if (!mcpRequest) {
       return errorHandler.createErrorResponse(
-        MCPErrorCodes.PARSE_ERROR,
+        400, // Bad Request
         'Invalid JSON-RPC request format',
         requestId
       );
@@ -189,7 +195,7 @@ async function handleRequest(
     // Handle known MCP errors
     if (error instanceof Error && 'code' in error) {
       return errorHandler.createErrorResponse(
-        (error as any).code,
+        500, // Internal Server Error - map MCP errors to HTTP 500
         error.message,
         requestId
       );
@@ -197,7 +203,7 @@ async function handleRequest(
 
     // Handle unknown errors
     return errorHandler.createErrorResponse(
-      MCPErrorCodes.INTERNAL_ERROR,
+      500, // Internal Server Error
       'Internal server error',
       requestId
     );
