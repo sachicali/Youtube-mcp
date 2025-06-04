@@ -87,29 +87,20 @@ export class ConfigurationService {
    * Create configuration from environment variables
    */
   private createFromEnvironment(env: CloudflareEnvironment): ServerConfiguration {
-    // Load .env in non-Cloudflare environments
-    let youtubeApiKey = env.YOUTUBE_API_KEY;
+    // Cloudflare Workers environment variables
+    const youtubeApiKey = env.YOUTUBE_API_KEY;
+    
     if (!youtubeApiKey) {
-      try {
-        // @ts-ignore - process exists in Node.js
-        if (typeof process !== 'undefined') {
-          // @ts-ignore
-          require('dotenv').config();
-          // @ts-ignore
-          youtubeApiKey = process.env.YOUTUBE_API_KEY;
-        }
-      } catch (e) {
-        // dotenv not available
-      }
+      throw new Error('YOUTUBE_API_KEY environment variable is required');
     }
 
     return {
-      environment: env.ENVIRONMENT,
+      environment: env.ENVIRONMENT || 'development',
       debug: env.DEBUG_MODE === 'true',
       
       apis: {
         youtube: {
-          apiKey: youtubeApiKey || '',
+          apiKey: youtubeApiKey,
           baseUrl: 'https://www.googleapis.com/youtube/v3',
           quotaLimit: 10000, // YouTube API v3 daily quota
           requestsPerSecond: 10, // Conservative rate limiting
@@ -242,15 +233,7 @@ export class ConfigurationService {
     const errors: ConfigurationError[] = [];
     const warnings: ConfigurationWarning[] = [];
 
-    // Validate YouTube API key
-    if (!config.apis.youtube.apiKey) {
-      errors.push({
-        field: 'apis.youtube.apiKey',
-        message: 'YouTube API key is required',
-        severity: 'error',
-        suggestion: 'Set YOUTUBE_API_KEY environment variable',
-      });
-    }
+    // Validate YouTube API key (already validated in createFromEnvironment)
 
     // Validate quota limits
     if (config.apis.youtube.quotaLimit <= 0) {

@@ -1,3 +1,10 @@
+## [Unreleased]
+### Fixed
+- **Configuration Service**: 
+  - Removed Node.js dotenv dependency to resolve Cloudflare Workers compatibility issues
+  - Added strict validation for YouTube API key environment variable
+  - Improved error handling for missing required configuration values
+  - Removed redundant API key validation in validation method
 # Changelog
 
 All notable changes to the YouTube Scraping MCP Server project will be documented in this file.
