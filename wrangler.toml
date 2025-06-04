@@ -35,12 +35,12 @@ METRICS_RETENTION_DAYS = "30"
 
 # Development KV Namespaces
 [[env.development.kv_namespaces]]
-binding = "CACHE"
+binding = "YOUTUBE_MCP_KV"
 id = "youtube_cache_dev"
 preview_id = "youtube_cache_dev_preview"
 
 [[env.development.kv_namespaces]]
-binding = "RATE_LIMITS"
+binding = "CACHE_KV"
 id = "rate_limits_dev"
 preview_id = "rate_limits_dev_preview"
 
@@ -72,12 +72,12 @@ METRICS_RETENTION_DAYS = "30"
 
 # Staging KV Namespaces
 [[env.staging.kv_namespaces]]
-binding = "CACHE"
+binding = "YOUTUBE_MCP_KV"
 id = "youtube_cache_staging"
 preview_id = "youtube_cache_staging_preview"
 
 [[env.staging.kv_namespaces]]
-binding = "RATE_LIMITS"
+binding = "CACHE_KV"
 id = "rate_limits_staging"
 preview_id = "rate_limits_staging_preview"
 
@@ -109,12 +109,12 @@ METRICS_RETENTION_DAYS = "90"
 
 # Production KV Namespaces
 [[env.production.kv_namespaces]]
-binding = "CACHE"
+binding = "YOUTUBE_MCP_KV"
 id = "youtube_cache_prod"
 preview_id = "youtube_cache_prod_preview"
 
 [[env.production.kv_namespaces]]
-binding = "RATE_LIMITS"
+binding = "CACHE_KV"
 id = "rate_limits_prod"
 preview_id = "rate_limits_prod_preview"
 
