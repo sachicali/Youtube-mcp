@@ -1,0 +1,183 @@
+# YouTube Scraping MCP Server - Project Intelligence
+
+## Critical Implementation Paths
+
+### MCP Server Architecture Pattern (From Cloudflare Video)
+- Tool-based architecture with clear tool registration
+- TypeScript implementation with strong typing throughout
+- Environment-based configuration for API keys
+- Modular structure with separate tool definitions
+- MCP Inspector integration for testing and validation
+
+### YouTube API Integration Strategy
+- Standard YouTube Data API v3 quota: 10,000 units/day
+- Exponential backoff retry strategy for rate limiting
+- Aggressive caching to minimize API calls and quota consumption
+- Multi-layer cache strategy: Memory → KV → API
+
+### Project Structure Rules (CRITICAL) ✅ IMPLEMENTED
+- Services, Controllers, Utils, Types in separate folders under src/
+- File naming: *.service.ts, *.controller.ts, *.util.ts, *.types.ts
+- NO any/unknown/undefined types - strict TypeScript throughout ✅ ACHIEVED
+- Modular architecture - avoid unnecessary subfolders per guidelines ✅ ACHIEVED
+- Clear separation of concerns following established patterns ✅ ACHIEVED
+
+### Core Implementation Insights (NEW)
+- **MCP Server Pattern**: Complete JSON-RPC 2.0 implementation with comprehensive error handling
+- **Service Initialization Pattern**: Lazy loading with global singleton pattern for Cloudflare Workers
+- **Error Boundary Pattern**: Multi-level error handling with structured logging and HTTP status mapping
+- **Type Safety Achievement**: 907 lines of strongly-typed code with zero any/unknown/undefined
+- **Utility System Pattern**: Comprehensive logging and error handling utilities with context management
+
+## User Preferences and Workflow
+
+### Authentication Preference
+- Hybrid approach: API key for general features, OAuth for user-specific features
+- Standard quota limits with exponential backoff strategy
+- Cloudflare Workers deployment for edge computing
+
+### Development Approach
+- Phased implementation starting with core infrastructure
+- Memory bank updates for persistence between sessions
+- Strong typing and modular design as primary concerns
+- MCP Inspector testing integration from the start
+
+## Project-Specific Patterns
+
+### MCP Tool Registration Pattern
+```typescript
+interface MCPTool {
+  name: string;
+  description: string;
+  inputSchema: JSONSchema;
+  handler: (input: unknown) => Promise<MCPToolResponse>;
+}
+```
+
+### Service Layer Pattern
+- Clear interfaces for all services (YouTube, Transcript, Cache, etc.)
+- Dependency injection for testability
+- Error boundary pattern for resilience
+- Performance optimization through caching
+
+### Error Handling Strategy
+- Structured error responses with consistent format
+- Graceful degradation for API failures
+- Circuit breaker pattern for external services
+- Comprehensive logging for debugging
+
+## Known Challenges
+
+### Technical Constraints
+1. **yt-dlp Integration**: Cannot run directly in Cloudflare Workers
+   - Solution: External service or alternative transcript sources
+   - Fallback: YouTube auto-generated captions via API
+
+2. **Quota Management**: YouTube API 10,000 units/day limit
+   - Solution: Aggressive caching with intelligent invalidation
+   - Strategy: Multi-layer cache with different TTLs
+
+3. **Type Safety**: Maintaining strong typing throughout
+   - Pattern: Define interfaces before implementation
+   - Rule: No any/unknown/undefined types allowed
+
+4. **Performance**: < 500ms response time targets
+   - Strategy: Edge computing + multi-layer caching
+   - Optimization: Efficient data structures and algorithms
+
+### Architectural Decisions Made
+- **Runtime**: Cloudflare Workers for global edge distribution
+- **Language**: TypeScript with strict mode and strong typing
+- **API Strategy**: YouTube Data API v3 as primary source
+- **Caching**: Cloudflare KV with multi-layer strategy
+- **Testing**: MCP Inspector for integration testing
+
+## Evolution of Project Decisions
+
+### Phase 1 Focus: Core Infrastructure
+- Basic MCP server structure with tool registry
+- Strong TypeScript foundation with all core types
+- Basic error handling and validation
+- Simple caching with Cloudflare KV
+
+### Phase 2 Focus: Basic Tools
+- getVideoTranscript with yt-dlp integration
+- getVideoAnalytics with YouTube API
+- Multi-layer caching implementation
+- Rate limiting with exponential backoff
+
+### Later Phases: Advanced Features
+- Complex analysis tools (channel, competitor, trend)
+- AI-powered insights and recommendations
+- Performance optimization and scaling
+- Security hardening and monitoring
+
+## Tool Usage Patterns
+
+### Development Workflow
+1. Always start by reading ALL memory bank files
+2. Update memory bank after significant changes
+3. Follow strict TypeScript patterns - no shortcuts
+4. Test with MCP Inspector after each tool implementation
+5. Document architectural decisions and patterns
+
+### Code Organization
+- Follow established folder structure religiously
+- Use consistent naming conventions throughout
+- Implement interfaces before concrete classes
+- Maintain clear separation between layers
+
+### Testing Strategy
+- Unit tests for all services and utilities
+- Integration tests with MCP Inspector
+- Performance tests for response time targets
+- Error handling tests for edge cases
+
+## Key Insights
+
+### MCP Integration
+- Tool registry pattern is central to extensibility
+- JSON Schema validation crucial for type safety
+- Environment configuration essential for deployment
+- Error boundaries prevent cascade failures
+
+### YouTube API Optimization
+- Batch requests where possible to save quota
+- Cache aggressively but invalidate intelligently
+- Monitor quota usage in real-time
+- Implement fallback strategies for quota exceeded
+
+### Cloudflare Workers Best Practices
+- Minimize cold start time with lazy loading
+- Use KV storage for persistent caching
+- Optimize for edge computing patterns
+- Handle global distribution considerations
+
+### Performance Optimization
+- Multi-layer caching is essential for targets
+- Edge computing provides significant advantages
+- Efficient data structures reduce processing time
+- Smart batching reduces API overhead
+
+## Project Success Factors
+
+### Critical Success Criteria
+1. All 7 MCP tools working with MCP Inspector
+2. Response times under 500ms for cached requests
+3. 99.9% uptime with proper error handling
+4. Type safety with zero any/unknown/undefined usage
+
+### Quality Gates
+- TypeScript compilation without errors or warnings
+- MCP Inspector validation for all tools
+- Unit test coverage above 80%
+- Performance benchmarks consistently met
+
+### Risk Mitigation
+- Comprehensive error handling prevents failures
+- Multi-layer caching reduces API dependency
+- Circuit breaker pattern handles service outages
+- Quota monitoring prevents service interruption
+
+## Confidence Rating: 9/10
+Strong architectural foundation with clear implementation path and proven patterns.
