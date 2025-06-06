@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "youtube-scraping-server": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": {
+        "YOUTUBE_API_KEY": "AIzaSyBPdU9xrIJItTtHD6Nk37EM9plBdpc-jLA"
+      }
+    }
+  }
+}
