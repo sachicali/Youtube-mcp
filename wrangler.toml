@@ -36,13 +36,13 @@ METRICS_RETENTION_DAYS = "30"
 # Development KV Namespaces
 [[env.development.kv_namespaces]]
 binding = "YOUTUBE_MCP_KV"
-id = "youtube_cache_dev"
-preview_id = "youtube_cache_dev_preview"
+id = "8ce59e88119d4bb5a69a5ac5c635c232"
+preview_id = "8ce59e88119d4bb5a69a5ac5c635c232"
 
 [[env.development.kv_namespaces]]
 binding = "CACHE_KV"
-id = "rate_limits_dev"
-preview_id = "rate_limits_dev_preview"
+id = "67257979ac26414f90440eda08c6ef2a"
+preview_id = "67257979ac26414f90440eda08c6ef2a"
 
 # =================================================================
 # Staging Environment Configuration
@@ -73,13 +73,13 @@ METRICS_RETENTION_DAYS = "30"
 # Staging KV Namespaces
 [[env.staging.kv_namespaces]]
 binding = "YOUTUBE_MCP_KV"
-id = "youtube_cache_staging"
-preview_id = "youtube_cache_staging_preview"
+id = "914e9db883434e97886fc39d4b608fa6"
+preview_id = "914e9db883434e97886fc39d4b608fa6"
 
 [[env.staging.kv_namespaces]]
 binding = "CACHE_KV"
-id = "rate_limits_staging"
-preview_id = "rate_limits_staging_preview"
+id = "a51dcc47e62249f0855264a10f206038"
+preview_id = "a51dcc47e62249f0855264a10f206038"
 
 # =================================================================
 # Production Environment Configuration
@@ -110,13 +110,13 @@ METRICS_RETENTION_DAYS = "90"
 # Production KV Namespaces
 [[env.production.kv_namespaces]]
 binding = "YOUTUBE_MCP_KV"
-id = "youtube_cache_prod"
-preview_id = "youtube_cache_prod_preview"
+id = "2e58f8603d6146c99c7a06585c0c0086"
+preview_id = "2e58f8603d6146c99c7a06585c0c0086"
 
 [[env.production.kv_namespaces]]
 binding = "CACHE_KV"
-id = "rate_limits_prod"
-preview_id = "rate_limits_prod_preview"
+id = "6693111f941a43e8861b240e2e8f81ce"
+preview_id = "6693111f941a43e8861b240e2e8f81ce"
 
 # =================================================================
 # Build Configuration

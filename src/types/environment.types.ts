@@ -40,6 +40,18 @@ export interface CloudflareEnvironment {
   WS_HEARTBEAT_INTERVAL?: string;
   WS_CONNECTION_TIMEOUT?: string;
 
+  // Server-Sent Events (SSE) configuration
+  SSE_MAX_SUBSCRIBERS?: string;
+  SSE_EVENT_BUFFER_SIZE?: string;
+  SSE_METRICS_RETENTION_HOURS?: string;
+  SSE_ENABLE_PERFORMANCE_TRACKING?: string;
+  SSE_ENABLE_EVENT_PERSISTENCE?: string;
+  SSE_HEARTBEAT_INTERVAL?: string;
+  SSE_CONNECTION_TIMEOUT?: string;
+  SSE_MAX_CONNECTIONS_PER_USER?: string;
+  SSE_COMPRESSION_ENABLED?: string;
+  SSE_CORS_ORIGINS?: string;
+
   // Authentication configuration
   AUTH_API_KEY_MIN_LENGTH?: string;
   AUTH_SESSION_TIMEOUT?: string;
@@ -235,6 +247,23 @@ export interface CorsConfig {
 }
 
 /**
+ * Server-Sent Events configuration
+ */
+export interface SSEConfig {
+  enabled: boolean;
+  maxSubscribers: number;
+  eventBufferSize: number;
+  metricsRetentionHours: number;
+  enablePerformanceTracking: boolean;
+  enableEventPersistence: boolean;
+  heartbeatInterval: number;
+  connectionTimeout: number;
+  maxConnectionsPerUser: number;
+  compressionEnabled: boolean;
+  corsOrigins: string[];
+}
+
+/**
  * Monitoring configuration
  */
 export interface MonitoringConfig {
@@ -269,6 +298,7 @@ export interface ServerConfiguration {
     heartbeatInterval: number;
     connectionTimeout: number;
   };
+  sse: SSEConfig;
   authentication: {
     apiKeyMinLength: number;
     sessionTimeout: number;
@@ -288,6 +318,12 @@ export const DEFAULT_CONFIG = {
   WS_MAX_CONNECTIONS: 1000,
   WS_HEARTBEAT_INTERVAL: 30000,
   WS_CONNECTION_TIMEOUT: 300000,
+  SSE_MAX_SUBSCRIBERS: 1000,
+  SSE_EVENT_BUFFER_SIZE: 100,
+  SSE_METRICS_RETENTION_HOURS: 24,
+  SSE_HEARTBEAT_INTERVAL: 30000,
+  SSE_CONNECTION_TIMEOUT: 300000,
+  SSE_MAX_CONNECTIONS_PER_USER: 5,
   AUTH_API_KEY_MIN_LENGTH: 32,
   AUTH_SESSION_TIMEOUT: 86400000,
   AUTH_DEFAULT_QUOTA: 10000,
@@ -392,6 +428,20 @@ export class ConfigurationFactory {
       }
     };
 
+    const sseConfig: SSEConfig = {
+      enabled: true,
+      maxSubscribers: EnvironmentValidator.getNumeric(env.SSE_MAX_SUBSCRIBERS, DEFAULT_CONFIG.SSE_MAX_SUBSCRIBERS),
+      eventBufferSize: EnvironmentValidator.getNumeric(env.SSE_EVENT_BUFFER_SIZE, DEFAULT_CONFIG.SSE_EVENT_BUFFER_SIZE),
+      metricsRetentionHours: EnvironmentValidator.getNumeric(env.SSE_METRICS_RETENTION_HOURS, DEFAULT_CONFIG.SSE_METRICS_RETENTION_HOURS),
+      enablePerformanceTracking: EnvironmentValidator.getBoolean(env.SSE_ENABLE_PERFORMANCE_TRACKING, true),
+      enableEventPersistence: EnvironmentValidator.getBoolean(env.SSE_ENABLE_EVENT_PERSISTENCE, false),
+      heartbeatInterval: EnvironmentValidator.getNumeric(env.SSE_HEARTBEAT_INTERVAL, DEFAULT_CONFIG.SSE_HEARTBEAT_INTERVAL),
+      connectionTimeout: EnvironmentValidator.getNumeric(env.SSE_CONNECTION_TIMEOUT, DEFAULT_CONFIG.SSE_CONNECTION_TIMEOUT),
+      maxConnectionsPerUser: EnvironmentValidator.getNumeric(env.SSE_MAX_CONNECTIONS_PER_USER, DEFAULT_CONFIG.SSE_MAX_CONNECTIONS_PER_USER),
+      compressionEnabled: EnvironmentValidator.getBoolean(env.SSE_COMPRESSION_ENABLED, false),
+      corsOrigins: env.SSE_CORS_ORIGINS ? env.SSE_CORS_ORIGINS.split(',') : ['*']
+    };
+
     return {
       environment: env.ENVIRONMENT === 'staging' ? 'development' : env.ENVIRONMENT,
       debug: isDebugMode,
@@ -430,6 +480,7 @@ export class ConfigurationFactory {
         heartbeatInterval: EnvironmentValidator.getNumeric(env.WS_HEARTBEAT_INTERVAL, DEFAULT_CONFIG.WS_HEARTBEAT_INTERVAL),
         connectionTimeout: EnvironmentValidator.getNumeric(env.WS_CONNECTION_TIMEOUT, DEFAULT_CONFIG.WS_CONNECTION_TIMEOUT)
       },
+      sse: sseConfig,
       authentication: {
         apiKeyMinLength: EnvironmentValidator.getNumeric(env.AUTH_API_KEY_MIN_LENGTH, DEFAULT_CONFIG.AUTH_API_KEY_MIN_LENGTH),
         sessionTimeout: EnvironmentValidator.getNumeric(env.AUTH_SESSION_TIMEOUT, DEFAULT_CONFIG.AUTH_SESSION_TIMEOUT),
